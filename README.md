@@ -1,6 +1,6 @@
 # Motivator Game
 
-A React/Vite web app for running an HR motivator selection game, scoring job alignment, and exporting participant reports.
+A bilingual (English/Persian) web app for HR facilitators to run motivator discovery sessions. Participants rank 52 workplace motivators down to their top 6, then score how well their current role supports each one. Reports are saved server-side and aggregated into team analytics.
 
 ## Local Development
 
@@ -9,8 +9,7 @@ Run the API server and the Vite dev server in two separate terminals.
 **Terminal 1 — API server:**
 ```bash
 npm install
-npm run build:server
-node --experimental-sqlite dist-server/index.js
+npm run dev:server
 ```
 
 **Terminal 2 — Vite dev server:**
@@ -18,82 +17,66 @@ node --experimental-sqlite dist-server/index.js
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). Vite proxies all `/api` requests to the Express server on `:8080`.
 
-The SQLite database is created at `data/app.db` in the project folder.
-
-To stop, press `Ctrl+C` in each terminal.
+The SQLite database is created automatically at `data/app.db`.
 
 ## Production Build
 
 ```bash
 npm run build
 npm run build:server
-```
-
-The static frontend files are written to `dist/` and the compiled server to `dist-server/`.
-
-To run the production build locally:
-```bash
 node --experimental-sqlite dist-server/index.js
 ```
 
-Open [http://localhost:8080](http://localhost:8080).
+Open [http://localhost:8080](http://localhost:8080). The Express server serves the built frontend as static files.
 
 ## Docker
-
-Build the production image:
-
-```bash
-docker build -t motivator-game .
-```
-
-Run it locally:
-
-```bash
-docker run --rm -p 8080:8080 -v motivator-data:/data --name motivator-game motivator-game
-```
-
-Open [http://localhost:8080](http://localhost:8080).
-
-Stop the container:
-
-```bash
-docker stop motivator-game
-```
-
-Or run with Docker Compose:
 
 ```bash
 docker compose up --build
 ```
 
-Stop the Compose stack:
+Or manually:
 
 ```bash
-docker compose down
+docker build -t motivator-game .
+docker run --rm -p 8080:8080 -v motivator-data:/data motivator-game
 ```
 
-## Deployment Notes
+Mount a persistent volume at `/data` to preserve the SQLite database across restarts and deployments. The image works on Cloud Run, Render, Fly.io, Railway, and most container hosts.
 
-The Docker image serves the built app with an Express/Node server on port `8080`, which works well for platforms such as Cloud Run, Render, Fly.io, Railway, and most container hosts.
+## Roles & Auth
 
-Mount a persistent volume at `/data` to preserve the SQLite database across deployments.
+There are three roles:
 
-## Data & Auth
+| Role | Access | How to log in |
+|---|---|---|
+| **Participant** | Play the game, see own report | One click — no password |
+| **Facilitator** | View & export reports for their company | Company access code + facilitator password |
+| **Admin** | Manage companies, view all reports | Admin password |
 
-- All reports are stored server-side in a SQLite database (`data/app.db`).
-- The facilitator password is stored as a SHA-256 hash in the database, never in the browser.
-- The default facilitator password is `facilitator123`. Change it from the Settings screen after first login.
+Default admin password: **`admin123`** — change it from Settings after first login.
 
-**To reset a forgotten facilitator password**, run this against the database:
+### Companies & Access Codes
+
+The admin creates companies from the Admin Panel. Each company gets an 8-character access code (e.g. `ACMEX7K2`). Share it with participants as a URL:
+
+```
+https://your-domain.com/?code=ACMEX7K2
+```
+
+Participants who open this link have their session automatically linked to the company. They can also enter the code manually on the welcome screen. The code is optional — participants without one can still play and their report is saved without a company association.
+
+### Resetting the admin password
+
 ```bash
 node --experimental-sqlite -e "
 const {DatabaseSync} = require('node:sqlite');
 const crypto = require('node:crypto');
 const db = new DatabaseSync('data/app.db');
-const hash = crypto.createHash('sha256').update('facilitator123').digest('hex');
-db.prepare(\"UPDATE settings SET value = ? WHERE key = 'facilitator_password_hash'\").run(hash);
-console.log('Password reset to: facilitator123');
+const hash = crypto.createHash('sha256').update('admin123').digest('hex');
+db.prepare(\"UPDATE settings SET value = ? WHERE key = 'admin_password_hash'\").run(hash);
+console.log('Admin password reset to: admin123');
 "
 ```
