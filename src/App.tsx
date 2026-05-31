@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  FileDown,
   FolderOpen,
   Info,
   Languages,
@@ -18,6 +19,8 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import confetti from "canvas-confetti";
 import { MOTIVATORS, Motivator } from "./data/motivators";
+import * as XLSX from "xlsx";
+import * as api from "./api";
 
 type GameStage =
   | "welcome"
@@ -26,7 +29,18 @@ type GameStage =
   | "level2_intro"
   | "level2_scoring"
   | "results"
-  | "saved_reports";
+  | "saved_reports"
+  | "team_report"
+  | "admin_settings"
+  | "admin_panel";
+
+type Role = "participant" | "facilitator" | "admin";
+
+interface AuthState {
+  role: Role | null;
+  companyId?: string;
+  companyName?: string;
+}
 type Language = "en" | "fa";
 
 interface GameState {
@@ -42,6 +56,7 @@ interface GameState {
   companyName: string;
   language: Language;
   currentReportId: string | null;
+  companyId: string | null;
 }
 
 interface SavedReport {
@@ -54,10 +69,10 @@ interface SavedReport {
   language: Language;
   activeCards: Motivator[];
   scores: Record<string, number>;
+  companyId?: string | null;
 }
 
 const STORAGE_KEY = "hr_motivator_game_simple";
-const SAVED_REPORTS_KEY = "hr_motivator_game_reports";
 const SCORE_OPTIONS = [-3, -2, -1, 0, 1, 2, 3];
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string; light: string }> = {
@@ -201,6 +216,58 @@ const TEXT = {
     backToStart: "Back to Start",
     savedAutomatically: "Saved automatically",
     lastUpdated: "Last updated",
+    teamReport: "Team Report",
+    teamReportBody: "Aggregate motivator scores across all saved reports.",
+    viewTeamReport: "View Team Report",
+    filterByCompany: "Filter by company",
+    allCompanies: "All companies",
+    timesSelected: "Selected",
+    positiveSum: "Positive",
+    negativeSum: "Negative",
+    netScore: "Net",
+    motivator: "Motivator",
+    category: "Category",
+    noReportsForCompany: "No completed reports for this company.",
+    participants: "participants",
+    loginTitle: "Welcome",
+    loginSubtitle: "Choose your role to continue.",
+    roleParticipant: "Participant",
+    roleParticipantDesc: "Play the game and see your own report.",
+    roleFacilitator: "Facilitator",
+    roleFacilitatorDesc: "Access all reports and team analytics.",
+    facilitatorPassword: "Facilitator password",
+    passwordPlaceholder: "Enter password",
+    wrongPassword: "Incorrect password.",
+    signOut: "Sign out",
+    settings: "Settings",
+    changePassword: "Change facilitator password",
+    newPassword: "New password",
+    currentPassword: "Current password",
+    savePassword: "Save password",
+    passwordSaved: "Password saved.",
+    passwordMismatch: "Current password is incorrect.",
+    myReport: "My Report",
+    roleAdmin: "Admin",
+    roleAdminDesc: "Manage companies and view all reports.",
+    adminPanel: "Admin Panel",
+    adminPassword: "Admin password",
+    companies: "Companies",
+    addCompany: "Add company",
+    companyFacilitatorPw: "Facilitator password",
+    noCompanies: "No companies yet. Add one below.",
+    copyLink: "Copy link",
+    copied: "Copied!",
+    reportsCount: "reports",
+    companyCodeLabel: "Company access code (optional)",
+    companyCodePlaceholder: "e.g. ABCD1234",
+    invalidCode: "Invalid company code.",
+    linkedTo: "Linked to",
+    applyCode: "Apply",
+    facilitatorCode: "Company code",
+    facilitatorCodePlaceholder: "8-character code",
+    facilitatorLoginError: "Wrong company code or password.",
+    resetCode: "Reset code",
+    viewingReportsFor: "Viewing reports for",
   },
   fa: {
     languageName: "English",
@@ -263,6 +330,58 @@ const TEXT = {
     backToStart: "بازگشت به شروع",
     savedAutomatically: "ذخیره خودکار",
     lastUpdated: "آخرین به روزرسانی",
+    teamReport: "گزارش تیمی",
+    teamReportBody: "مجموع امتیازات انگیزاننده ها در تمام گزارش های ذخیره شده.",
+    viewTeamReport: "مشاهده گزارش تیمی",
+    filterByCompany: "فیلتر بر اساس شرکت",
+    allCompanies: "همه شرکت ها",
+    timesSelected: "انتخاب شده",
+    positiveSum: "مثبت",
+    negativeSum: "منفی",
+    netScore: "خالص",
+    motivator: "انگیزاننده",
+    category: "دسته",
+    noReportsForCompany: "هیچ گزارش کاملی برای این شرکت وجود ندارد.",
+    participants: "شرکت کننده",
+    loginTitle: "خوش آمدید",
+    loginSubtitle: "نقش خود را انتخاب کنید.",
+    roleParticipant: "شرکت کننده",
+    roleParticipantDesc: "بازی کنید و گزارش خود را ببینید.",
+    roleFacilitator: "تسهیل گر",
+    roleFacilitatorDesc: "دسترسی به همه گزارش ها و تحلیل تیمی.",
+    facilitatorPassword: "رمز عبور تسهیل گر",
+    passwordPlaceholder: "رمز عبور را وارد کنید",
+    wrongPassword: "رمز عبور اشتباه است.",
+    signOut: "خروج",
+    settings: "تنظیمات",
+    changePassword: "تغییر رمز عبور تسهیل گر",
+    newPassword: "رمز عبور جدید",
+    currentPassword: "رمز عبور فعلی",
+    savePassword: "ذخیره رمز عبور",
+    passwordSaved: "رمز عبور ذخیره شد.",
+    passwordMismatch: "رمز عبور فعلی اشتباه است.",
+    myReport: "گزارش من",
+    roleAdmin: "مدیر سیستم",
+    roleAdminDesc: "مدیریت شرکت‌ها و مشاهده همه گزارش‌ها.",
+    adminPanel: "پنل مدیریت",
+    adminPassword: "رمز عبور مدیر",
+    companies: "شرکت‌ها",
+    addCompany: "افزودن شرکت",
+    companyFacilitatorPw: "رمز عبور تسهیل‌گر",
+    noCompanies: "هنوز شرکتی اضافه نشده.",
+    copyLink: "کپی لینک",
+    copied: "کپی شد!",
+    reportsCount: "گزارش",
+    companyCodeLabel: "کد دسترسی شرکت (اختیاری)",
+    companyCodePlaceholder: "مثلاً ABCD1234",
+    invalidCode: "کد شرکت نامعتبر است.",
+    linkedTo: "متصل به",
+    applyCode: "اعمال",
+    facilitatorCode: "کد شرکت",
+    facilitatorCodePlaceholder: "کد ۸ کاراکتری",
+    facilitatorLoginError: "کد شرکت یا رمز عبور اشتباه است.",
+    resetCode: "بازنشانی کد",
+    viewingReportsFor: "نمایش گزارش‌های",
   },
 } as const;
 
@@ -303,22 +422,6 @@ const createReportId = () => {
   return `report-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
 
-const loadSavedReports = (): SavedReport[] => {
-  const saved = localStorage.getItem(SAVED_REPORTS_KEY);
-  if (!saved) return [];
-  try {
-    const parsed = JSON.parse(saved);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    console.error("Failed to load saved reports", error);
-    return [];
-  }
-};
-
-const persistSavedReports = (reports: SavedReport[]) => {
-  localStorage.setItem(SAVED_REPORTS_KEY, JSON.stringify(reports));
-};
-
 const getCategoryStyles = (category: string) =>
   CATEGORY_COLORS[category] || { bg: "bg-slate-600", text: "text-slate-600", border: "border-slate-100", light: "bg-slate-50" };
 
@@ -352,9 +455,14 @@ interface ShellProps {
   language: Language;
   onToggleLanguage: () => void;
   compact?: boolean;
+  onSignOut?: () => void;
+  onSettings?: () => void;
+  role?: Role | null;
+  settingsLabel?: string;
+  signOutLabel?: string;
 }
 
-const Shell: React.FC<ShellProps> = ({ children, language, onToggleLanguage, compact }) => {
+const Shell: React.FC<ShellProps> = ({ children, language, onToggleLanguage, compact, onSignOut, onSettings, role, settingsLabel, signOutLabel }) => {
   const t = TEXT[language];
 
   return (
@@ -368,14 +476,26 @@ const Shell: React.FC<ShellProps> = ({ children, language, onToggleLanguage, com
             </div>
             <h1 className="text-lg font-black tracking-tight text-slate-900">{t.appTitle}</h1>
           </div>
-          <button
-            type="button"
-            onClick={onToggleLanguage}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-          >
-            <Languages size={16} />
-            {t.languageName}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onToggleLanguage}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+            >
+              <Languages size={16} />
+              {t.languageName}
+            </button>
+            {role === "admin" && onSettings && (
+              <button type="button" onClick={onSettings} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50">
+                {settingsLabel}
+              </button>
+            )}
+            {onSignOut && (
+              <button type="button" onClick={onSignOut} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
+                {signOutLabel}
+              </button>
+            )}
+          </div>
         </div>
         {children}
       </div>
@@ -456,6 +576,7 @@ export default function App() {
       companyName: "",
       language: "en",
       currentReportId: null,
+      companyId: null,
     };
 
     if (saved) {
@@ -468,7 +589,44 @@ export default function App() {
     }
     return defaults;
   });
-  const [savedReports, setSavedReports] = useState<SavedReport[]>(() => loadSavedReports());
+  const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<string>("__all__");
+  const [teamReportTab, setTeamReportTab] = useState<"count" | "value">("count");
+  const [auth, setAuth] = useState<AuthState>(() => {
+    const saved = localStorage.getItem("hr_motivator_role");
+    const role = (saved === "facilitator" || saved === "participant" || saved === "admin") ? saved as Role : null;
+    if ((role === "facilitator" || role === "admin") && !api.getToken()) return { role: null };
+    if (role === "facilitator") {
+      const companyId = localStorage.getItem("hr_motivator_company_id") || undefined;
+      const companyName = localStorage.getItem("hr_motivator_company_name") || undefined;
+      return { role, companyId, companyName };
+    }
+    return { role };
+  });
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwSaved, setPwSaved] = useState(false);
+  const [pwError, setPwError] = useState(false);
+
+  // Company code resolution (participant welcome screen)
+  const [resolvedCompany, setResolvedCompany] = useState<{ id: string; name: string; code: string } | null>(null);
+  const [codeInput, setCodeInput] = useState("");
+  const [codeError, setCodeError] = useState(false);
+  const [codeLoading, setCodeLoading] = useState(false);
+
+  // Facilitator login
+  const [facCodeInput, setFacCodeInput] = useState("");
+  const [facPasswordInput, setFacPasswordInput] = useState("");
+  const [facLoginError, setFacLoginError] = useState(false);
+
+  // Admin panel
+  const [companies, setCompanies] = useState<api.Company[]>([]);
+  const [newCompanyName, setNewCompanyName] = useState("");
+  const [newCompanyPassword, setNewCompanyPassword] = useState("");
+  const [companyFormError, setCompanyFormError] = useState("");
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   const t = TEXT[state.language];
   const isRtl = state.language === "fa";
@@ -486,27 +644,39 @@ export default function App() {
     document.title = state.stage === "results" ? getReportFileBase(state.participantName) : t.appTitle;
   }, [state.participantName, state.stage, t.appTitle]);
 
+  // Parse ?code= URL param on first load
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    if (!code) return;
+    const upper = code.toUpperCase();
+    setCodeInput(upper);
+    setFacCodeInput(upper);
+    api.resolveCompanyCode(upper).then((company) => {
+      if (company) setResolvedCompany(company);
+      else setCodeError(true);
+    }).catch(() => setCodeError(true));
+  }, []);
+
+  // Persist report to server whenever results are shown
   useEffect(() => {
     if (state.stage !== "results" || !state.currentReportId || state.activeCards.length !== 6) return;
-
-    setSavedReports((prev) => {
-      const existing = prev.find((report) => report.id === state.currentReportId);
-      const now = new Date().toISOString();
-      const nextReport: SavedReport = {
-        id: state.currentReportId,
-        createdAt: existing?.createdAt || now,
-        updatedAt: now,
-        participantName: state.participantName,
-        participantPosition: state.participantPosition,
-        companyName: state.companyName,
-        language: state.language,
-        activeCards: state.activeCards,
-        scores: state.scores,
-      };
-      const nextReports = [nextReport, ...prev.filter((report) => report.id !== state.currentReportId)];
-      persistSavedReports(nextReports);
-      return nextReports;
-    });
+    const now = new Date().toISOString();
+    const existing = savedReports.find((r) => r.id === state.currentReportId);
+    const report: SavedReport = {
+      id: state.currentReportId!,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      participantName: state.participantName,
+      participantPosition: state.participantPosition,
+      companyName: state.companyName,
+      language: state.language,
+      activeCards: state.activeCards,
+      scores: state.scores,
+      companyId: state.companyId,
+    };
+    api.upsertReport(report).catch(console.error);
+    setSavedReports((prev) => [report, ...prev.filter((r) => r.id !== report.id)]);
   }, [
     state.activeCards,
     state.companyName,
@@ -553,7 +723,7 @@ export default function App() {
   const startGame = () => {
     const participantName = state.participantName.trim();
     const participantPosition = state.participantPosition.trim();
-    const companyName = state.companyName.trim();
+    const companyName = resolvedCompany ? resolvedCompany.name : state.companyName.trim();
     if (!participantName || !participantPosition || !companyName) return;
 
     const deck = shuffle(MOTIVATORS);
@@ -570,6 +740,7 @@ export default function App() {
       newestCardId: null,
       scores: {},
       currentReportId: null,
+      companyId: resolvedCompany?.id ?? null,
     }));
   };
 
@@ -629,12 +800,18 @@ export default function App() {
       companyName: "",
       language: prev.language,
       currentReportId: null,
+      companyId: null,
     }));
   };
 
   const openSavedReports = () => {
-    setSavedReports(loadSavedReports());
+    api.fetchReports().then(setSavedReports).catch(console.error);
     setState((prev) => ({ ...prev, stage: "saved_reports" }));
+  };
+
+  const openTeamReport = () => {
+    api.fetchReports().then(setSavedReports).catch(console.error);
+    setState((prev) => ({ ...prev, stage: "team_report" }));
   };
 
   const openSavedReport = (report: SavedReport) => {
@@ -656,11 +833,8 @@ export default function App() {
   };
 
   const deleteSavedReport = (id: string) => {
-    setSavedReports((prev) => {
-      const nextReports = prev.filter((report) => report.id !== id);
-      persistSavedReports(nextReports);
-      return nextReports;
-    });
+    api.deleteReport(id).catch(console.error);
+    setSavedReports((prev) => prev.filter((r) => r.id !== id));
     if (state.currentReportId === id) {
       setState((prev) => ({ ...prev, currentReportId: null }));
     }
@@ -668,6 +842,101 @@ export default function App() {
 
   const backToStart = () => {
     setState((prev) => ({ ...prev, stage: "welcome" }));
+  };
+
+  const loginAsParticipant = () => {
+    setAuth({ role: "participant" });
+    localStorage.setItem("hr_motivator_role", "participant");
+  };
+
+  const loginAsFacilitator = async () => {
+    const result = await api.verifyFacilitatorPassword(facCodeInput, facPasswordInput);
+    if (result) {
+      setAuth({ role: "facilitator", companyId: result.companyId, companyName: result.companyName });
+      localStorage.setItem("hr_motivator_role", "facilitator");
+      localStorage.setItem("hr_motivator_company_id", result.companyId);
+      localStorage.setItem("hr_motivator_company_name", result.companyName);
+      setFacCodeInput(""); setFacPasswordInput(""); setFacLoginError(false);
+      api.fetchReports().then(setSavedReports).catch(console.error);
+    } else {
+      setFacLoginError(true);
+    }
+  };
+
+  const loginAsAdmin = async () => {
+    const ok = await api.verifyAdminPassword(passwordInput);
+    if (ok) {
+      setAuth({ role: "admin" });
+      localStorage.setItem("hr_motivator_role", "admin");
+      setPasswordInput(""); setPasswordError(false);
+      api.fetchReports().then(setSavedReports).catch(console.error);
+    } else {
+      setPasswordError(true);
+    }
+  };
+
+  const signOut = async () => {
+    await api.signOut();
+    localStorage.removeItem("hr_motivator_role");
+    localStorage.removeItem("hr_motivator_company_id");
+    localStorage.removeItem("hr_motivator_company_name");
+    setAuth({ role: null });
+    setPasswordInput(""); setPasswordError(false);
+    setFacCodeInput(""); setFacPasswordInput(""); setFacLoginError(false);
+    setState((prev) => ({ ...prev, stage: "welcome" }));
+  };
+
+  const saveNewPassword = async () => {
+    const ok = await api.changeAdminPassword(pwCurrent, pwNew);
+    if (!ok) { setPwError(true); return; }
+    localStorage.removeItem("hr_motivator_role");
+    setAuth({ role: null });
+    setPwCurrent(""); setPwNew(""); setPwError(false); setPwSaved(true);
+  };
+
+  const resolveCode = async (code: string) => {
+    if (!code.trim()) return;
+    setCodeLoading(true);
+    setCodeError(false);
+    const company = await api.resolveCompanyCode(code.trim());
+    setCodeLoading(false);
+    if (company) { setResolvedCompany(company); setFacCodeInput(company.code); }
+    else setCodeError(true);
+  };
+
+  const openAdminPanel = () => {
+    api.fetchCompanies().then(setCompanies).catch(console.error);
+    setState((prev) => ({ ...prev, stage: "admin_panel" }));
+  };
+
+  const createCompany = async () => {
+    if (!newCompanyName.trim() || !newCompanyPassword) return;
+    setCompanyFormError("");
+    try {
+      const company = await api.createCompany(newCompanyName.trim(), newCompanyPassword);
+      setCompanies((prev) => [company, ...prev]);
+      setNewCompanyName(""); setNewCompanyPassword("");
+    } catch {
+      setCompanyFormError("Failed to create company.");
+    }
+  };
+
+  const deleteCompanyById = async (id: string) => {
+    await api.deleteCompany(id);
+    setCompanies((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  const resetCompanyCodeById = async (id: string) => {
+    const newCode = await api.resetCompanyCode(id);
+    setCompanies((prev) => prev.map((c) => c.id === id ? { ...c, accessCode: newCode } : c));
+  };
+
+  const copyShareLink = (code: string) => {
+    const url = `${window.location.origin}${window.location.pathname}?code=${code}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedCode(code);
+      setTimeout(() => setCopiedCode(null), 2000);
+    });
   };
 
   const exportPDF = () => {
@@ -679,11 +948,316 @@ export default function App() {
     }, 500);
   };
 
-  const isReadyToStart = Boolean(state.participantName.trim() && state.participantPosition.trim() && state.companyName.trim());
+  const exportTeamReportPDF = (
+    rows: { motivator: Motivator; positiveCount: number; negativeCount: number; positiveSum: number; negativeSum: number; timesSelected: number }[],
+    company: string,
+    lang: Language,
+    maxC: number,
+    maxV: number,
+  ) => {
+    const title = `Team Motivator Report${company !== "__all__" ? ` — ${company}` : ""}`;
+    const isFA = lang === "fa";
+    const dir = isFA ? "rtl" : "ltr";
+
+    const countRowsLocal = [...rows].sort((a, b) => (b.positiveCount - b.negativeCount) - (a.positiveCount - a.negativeCount));
+    const valueRowsLocal = [...rows].sort((a, b) => (b.positiveSum + Math.abs(b.negativeSum)) - (a.positiveSum + Math.abs(a.negativeSum)));
+
+    // neg-value | neg-bar (fills from center outward left) | name | pos-bar (fills from center outward right) | pos-value
+    const barRow = (label: string, posW: number, negW: number, posLabel: string, negLabel: string) => `
+      <tr>
+        <td style="width:40px;text-align:right;padding:3px 4px;font-size:11px;color:#ef4444;font-weight:800;white-space:nowrap">${negLabel}</td>
+        <td style="width:180px;padding:3px 2px">
+          <div style="height:10px;background:#fee2e2;border-radius:4px 0 0 4px;overflow:hidden;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+            <div style="height:100%;width:${negW}%;background:#f87171;margin-left:auto;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>
+          </div>
+        </td>
+        <td style="width:140px;font-weight:700;font-size:11px;padding:3px 6px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</td>
+        <td style="width:180px;padding:3px 2px">
+          <div style="height:10px;background:#d1fae5;border-radius:0 4px 4px 0;overflow:hidden;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+            <div style="height:100%;width:${posW}%;background:#34d399;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>
+          </div>
+        </td>
+        <td style="width:40px;text-align:left;padding:3px 4px;font-size:11px;color:#10b981;font-weight:800;white-space:nowrap">${posLabel}</td>
+      </tr>`;
+
+    const countTable = countRowsLocal.map((r) => {
+      const copy = getMotivatorText(r.motivator, lang);
+      return barRow(copy.title, (r.positiveCount / maxC) * 100, (r.negativeCount / maxC) * 100, `+${r.positiveCount}`, `−${r.negativeCount}`);
+    }).join("");
+
+    const valueTable = valueRowsLocal.map((r) => {
+      const copy = getMotivatorText(r.motivator, lang);
+      return barRow(copy.title, (r.positiveSum / maxV) * 100, (Math.abs(r.negativeSum) / maxV) * 100,
+        r.positiveSum > 0 ? `+${r.positiveSum}` : "—",
+        r.negativeSum < 0 ? `${r.negativeSum}` : "—");
+    }).join("");
+
+    const section = (heading: string, table: string) => `
+      <h2 style="font-size:15px;font-weight:900;margin:28px 0 6px">${heading}</h2>
+      <table style="width:100%;border-collapse:collapse;table-layout:fixed">${table}</table>`;
+
+    const html = `<!DOCTYPE html><html dir="${dir}"><head><meta charset="utf-8"><title>${title}</title>
+      <style>
+        body{font-family:sans-serif;padding:24px;color:#0f172a}
+        @media print{@page{margin:1cm}*{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+      </style>
+      </head><body>
+      <h1 style="font-size:20px;font-weight:900;margin-bottom:2px">${title}</h1>
+      <p style="font-size:11px;color:#64748b;margin-bottom:8px">${new Date().toLocaleDateString(isFA ? "fa-IR" : "en-US")}</p>
+      ${section(isFA ? "تحلیل تعدادی" : "Number Analysis", countTable)}
+      ${section(isFA ? "تحلیل ارزشی" : "Value Analysis", valueTable)}
+      <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script>
+      </body></html>`;
+
+    const win = window.open("", "_blank");
+    if (win) { win.document.write(html); win.document.close(); }
+  };
+
+  const exportTeamReportExcel = (
+    rows: { motivator: Motivator; positiveCount: number; negativeCount: number; positiveSum: number; negativeSum: number; timesSelected: number }[],
+    company: string,
+    lang: Language,
+  ) => {
+    const sheetData = rows.map((r) => {
+      const copy = getMotivatorText(r.motivator, lang);
+      return {
+        [lang === "fa" ? "انگیزاننده" : "Motivator"]: copy.title,
+        [lang === "fa" ? "دسته" : "Category"]: copy.category,
+        [lang === "fa" ? "انتخاب شده" : "Times Selected"]: r.timesSelected,
+        [lang === "fa" ? "تعداد مثبت" : "Positive Count"]: r.positiveCount,
+        [lang === "fa" ? "تعداد منفی" : "Negative Count"]: r.negativeCount,
+        [lang === "fa" ? "مجموع مثبت" : "Positive Sum"]: r.positiveSum,
+        [lang === "fa" ? "مجموع منفی" : "Negative Sum"]: r.negativeSum,
+        [lang === "fa" ? "خالص" : "Net Score"]: r.positiveSum + r.negativeSum,
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(sheetData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Team Report");
+    XLSX.writeFile(wb, `Team Motivator Report${company !== "__all__" ? ` - ${company}` : ""}.xlsx`);
+  };
+
+  const isReadyToStart = Boolean(
+    state.participantName.trim() &&
+    state.participantPosition.trim() &&
+    (resolvedCompany || state.companyName.trim())
+  );
+
+  // Login screen
+  if (!auth.role) {
+    return (
+      <Shell language={state.language} onToggleLanguage={toggleLanguage} compact onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut}>
+        <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+          <div className="border-b border-slate-100 bg-slate-950 p-8 text-white sm:p-10">
+            <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-lg bg-white/10">
+              <BarChart3 size={26} />
+            </div>
+            <h1 className="text-3xl font-black tracking-tight">{t.loginTitle}</h1>
+            <p className="mt-2 text-slate-300 font-medium">{t.loginSubtitle}</p>
+          </div>
+          <div className="space-y-4 p-6 sm:p-8">
+            {/* Participant */}
+            <button
+              type="button"
+              onClick={loginAsParticipant}
+              className="w-full rounded-lg border-2 border-slate-200 p-5 text-start transition hover:border-blue-400 hover:bg-blue-50"
+            >
+              <p className="text-lg font-black text-slate-900">{t.roleParticipant}</p>
+              <p className="mt-1 text-sm font-medium text-slate-500">{t.roleParticipantDesc}</p>
+            </button>
+            {/* Facilitator */}
+            <div className="rounded-lg border-2 border-slate-200 p-5 transition hover:border-emerald-400">
+              <p className="text-lg font-black text-slate-900">{t.roleFacilitator}</p>
+              <p className="mt-1 text-sm font-medium text-slate-500">{t.roleFacilitatorDesc}</p>
+              <div className="mt-4 space-y-2">
+                <input
+                  type="text"
+                  placeholder={t.facilitatorCodePlaceholder}
+                  value={facCodeInput}
+                  onChange={(e) => { setFacCodeInput(e.target.value.toUpperCase()); setFacLoginError(false); }}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm uppercase outline-none transition focus:border-slate-400 focus:bg-white"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    placeholder={t.passwordPlaceholder}
+                    value={facPasswordInput}
+                    onChange={(e) => { setFacPasswordInput(e.target.value); setFacLoginError(false); }}
+                    onKeyDown={(e) => e.key === "Enter" && loginAsFacilitator()}
+                    className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+                  />
+                  <button type="button" onClick={loginAsFacilitator} className="rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-black text-white transition hover:bg-slate-800">→</button>
+                </div>
+              </div>
+              {facLoginError && <p className="mt-2 text-xs font-bold text-red-500">{t.facilitatorLoginError}</p>}
+            </div>
+            {/* Admin */}
+            <div className="rounded-lg border-2 border-slate-200 p-5 transition hover:border-amber-400">
+              <p className="text-lg font-black text-slate-900">{t.roleAdmin}</p>
+              <p className="mt-1 text-sm font-medium text-slate-500">{t.roleAdminDesc}</p>
+              <div className="mt-4 flex gap-2">
+                <input
+                  type="password"
+                  placeholder={t.passwordPlaceholder}
+                  value={passwordInput}
+                  onChange={(e) => { setPasswordInput(e.target.value); setPasswordError(false); }}
+                  onKeyDown={(e) => e.key === "Enter" && loginAsAdmin()}
+                  className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+                />
+                <button type="button" onClick={loginAsAdmin} className="rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-black text-white transition hover:bg-slate-800">→</button>
+              </div>
+              {passwordError && <p className="mt-2 text-xs font-bold text-red-500">{t.wrongPassword}</p>}
+            </div>
+          </div>
+        </motion.div>
+      </Shell>
+    );
+  }
+
+  // Admin settings screen
+  if (state.stage === "admin_settings") {
+    return (
+      <Shell language={state.language} onToggleLanguage={toggleLanguage} compact onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut}>
+        <div className="space-y-4">
+          <section className="rounded-lg border border-slate-200 bg-white p-7 shadow-xl">
+            <div className="flex items-center justify-between gap-4">
+              <h1 className="text-2xl font-black tracking-tight text-slate-950">{t.settings}</h1>
+              <button type="button" onClick={backToStart} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-black text-slate-600 transition hover:bg-slate-50">
+                <ChevronLeft size={16} />{t.backToStart}
+              </button>
+            </div>
+          </section>
+          <section className="rounded-lg border border-slate-200 bg-white p-7 shadow-sm">
+            <h2 className="mb-5 text-lg font-black text-slate-900">{t.changePassword}</h2>
+            <div className="space-y-3">
+              <input
+                type="password"
+                placeholder={t.currentPassword}
+                value={pwCurrent}
+                onChange={(e) => { setPwCurrent(e.target.value); setPwError(false); setPwSaved(false); }}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+              />
+              <input
+                type="password"
+                placeholder={t.newPassword}
+                value={pwNew}
+                onChange={(e) => { setPwNew(e.target.value); setPwError(false); setPwSaved(false); }}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+              />
+              {pwError && <p className="text-xs font-bold text-red-500">{t.passwordMismatch}</p>}
+              {pwSaved && <p className="text-xs font-bold text-emerald-600">{t.passwordSaved}</p>}
+              <button
+                type="button"
+                onClick={saveNewPassword}
+                disabled={!pwCurrent || !pwNew}
+                className="inline-flex w-full items-center justify-center rounded-lg bg-slate-950 py-3 font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+              >
+                {t.savePassword}
+              </button>
+            </div>
+          </section>
+        </div>
+      </Shell>
+    );
+  }
+
+  // Admin panel
+  if (state.stage === "admin_panel") {
+    if (auth.role !== "admin") { setState((prev) => ({ ...prev, stage: "welcome" })); return null; }
+    return (
+      <Shell language={state.language} onToggleLanguage={toggleLanguage} onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut}>
+        <div className="mx-auto max-w-4xl space-y-6">
+          <section className="rounded-lg border border-slate-200 bg-white p-7 shadow-xl">
+            <div className="flex items-center justify-between gap-4">
+              <h1 className="text-3xl font-black tracking-tight text-slate-950">{t.adminPanel}</h1>
+              <button type="button" onClick={backToStart} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-black text-slate-600 transition hover:bg-slate-50">
+                <ChevronLeft size={16} />{t.backToStart}
+              </button>
+            </div>
+          </section>
+
+          {/* Add company form */}
+          <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-4 text-lg font-black text-slate-900">{t.addCompany}</h2>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <input
+                type="text"
+                placeholder={t.companyPlaceholder}
+                value={newCompanyName}
+                onChange={(e) => { setNewCompanyName(e.target.value); setCompanyFormError(""); }}
+                className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+              />
+              <input
+                type="password"
+                placeholder={t.companyFacilitatorPw}
+                value={newCompanyPassword}
+                onChange={(e) => { setNewCompanyPassword(e.target.value); setCompanyFormError(""); }}
+                onKeyDown={(e) => e.key === "Enter" && createCompany()}
+                className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+              />
+              <button
+                type="button"
+                onClick={createCompany}
+                disabled={!newCompanyName.trim() || !newCompanyPassword}
+                className="rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-black text-white transition hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400"
+              >
+                {t.addCompany}
+              </button>
+            </div>
+            {companyFormError && <p className="mt-2 text-xs font-bold text-red-500">{companyFormError}</p>}
+          </section>
+
+          {/* Company list */}
+          <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+            {companies.length === 0 ? (
+              <p className="p-8 text-center font-bold text-slate-400">{t.noCompanies}</p>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {companies.map((company) => (
+                  <div key={company.id} className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-black text-slate-950">{company.name}</p>
+                      <p className="mt-0.5 font-mono text-sm font-bold tracking-widest text-slate-400">{company.accessCode}</p>
+                      <p className="mt-0.5 text-xs font-bold text-slate-400">
+                        {company.reportCount} {t.reportsCount} · {new Date(company.createdAt).toLocaleDateString(isRtl ? "fa-IR" : "en-US")}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => copyShareLink(company.accessCode)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 transition hover:bg-slate-50"
+                      >
+                        {copiedCode === company.accessCode ? t.copied : t.copyLink}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => resetCompanyCodeById(company.id)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 transition hover:bg-slate-50"
+                      >
+                        {t.resetCode}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteCompanyById(company.id)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-red-500 transition hover:border-red-200 hover:bg-red-50"
+                      >
+                        <Trash2 size={14} />{t.deleteCompany}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      </Shell>
+    );
+  }
 
   if (state.stage === "welcome") {
     return (
-      <Shell language={state.language} onToggleLanguage={toggleLanguage} compact>
+      <Shell language={state.language} onToggleLanguage={toggleLanguage} compact onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut}>
         <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
           <div className="border-b border-slate-100 bg-slate-950 p-8 text-white sm:p-10">
             <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-lg bg-white/10">
@@ -694,6 +1268,13 @@ export default function App() {
           </div>
 
           <div className="space-y-5 p-6 sm:p-8">
+            {/* Facilitator scope badge */}
+            {auth.role === "facilitator" && auth.companyName && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+                {t.viewingReportsFor} <strong>{auth.companyName}</strong>
+              </div>
+            )}
+
             <label className="block">
               <span className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-500">
                 <UserRound size={14} />
@@ -707,19 +1288,56 @@ export default function App() {
                 className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
               />
             </label>
-            <label className="block">
-              <span className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-500">
-                <Building2 size={14} />
-                {t.companyName}
-              </span>
-              <input
-                type="text"
-                placeholder={t.companyPlaceholder}
-                value={state.companyName}
-                onChange={(event) => updateField("companyName", event.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
-              />
-            </label>
+
+            {/* Company: locked badge when resolved via code, free input otherwise */}
+            {resolvedCompany ? (
+              <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50 px-4 py-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">{t.linkedTo}</p>
+                <p className="mt-1 font-black text-slate-900">{resolvedCompany.name}</p>
+                <p className="mt-0.5 font-mono text-xs font-bold text-emerald-500">{resolvedCompany.code}</p>
+              </div>
+            ) : (
+              <>
+                <label className="block">
+                  <span className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-500">
+                    <Building2 size={14} />
+                    {t.companyName}
+                  </span>
+                  <input
+                    type="text"
+                    placeholder={t.companyPlaceholder}
+                    value={state.companyName}
+                    onChange={(event) => updateField("companyName", event.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+                  />
+                </label>
+                {/* Optional company code */}
+                <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4">
+                  <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-400">{t.companyCodeLabel}</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder={t.companyCodePlaceholder}
+                      value={codeInput}
+                      maxLength={8}
+                      onChange={(e) => { setCodeInput(e.target.value.toUpperCase()); setCodeError(false); }}
+                      onKeyDown={(e) => e.key === "Enter" && resolveCode(codeInput)}
+                      className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 font-mono text-sm uppercase outline-none transition focus:border-slate-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => resolveCode(codeInput)}
+                      disabled={!codeInput.trim() || codeLoading}
+                      className="rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-black text-white transition hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400"
+                    >
+                      {codeLoading ? "…" : t.applyCode}
+                    </button>
+                  </div>
+                  {codeError && <p className="mt-2 text-xs font-bold text-red-500">{t.invalidCode}</p>}
+                </div>
+              </>
+            )}
+
             <label className="block">
               <span className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-500">
                 <BarChart3 size={14} />
@@ -745,17 +1363,40 @@ export default function App() {
               {t.startLevel1}
               <NextIcon size={20} />
             </button>
-            <button
-              type="button"
-              onClick={openSavedReports}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white py-3 text-sm font-black text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
-            >
-              <FolderOpen size={18} />
-              {t.viewSavedReports}
-              {savedReports.length > 0 && (
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-black text-slate-500">{savedReports.length}</span>
-              )}
-            </button>
+
+            {(auth.role === "facilitator" || auth.role === "admin") && (
+              <>
+                <button
+                  type="button"
+                  onClick={openSavedReports}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white py-3 text-sm font-black text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                >
+                  <FolderOpen size={18} />
+                  {t.viewSavedReports}
+                  {savedReports.length > 0 && (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-black text-slate-500">{savedReports.length}</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={openTeamReport}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white py-3 text-sm font-black text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                >
+                  <BarChart3 size={18} />
+                  {t.viewTeamReport}
+                </button>
+              </>
+            )}
+            {auth.role === "admin" && (
+              <button
+                type="button"
+                onClick={openAdminPanel}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50 py-3 text-sm font-black text-amber-700 transition hover:bg-amber-100"
+              >
+                <Building2 size={18} />
+                {t.adminPanel}
+              </button>
+            )}
           </div>
         </motion.div>
       </Shell>
@@ -763,8 +1404,9 @@ export default function App() {
   }
 
   if (state.stage === "saved_reports") {
+    if (auth.role !== "facilitator" && auth.role !== "admin") { setState((prev) => ({ ...prev, stage: "welcome" })); return null; }
     return (
-      <Shell language={state.language} onToggleLanguage={toggleLanguage}>
+      <Shell language={state.language} onToggleLanguage={toggleLanguage} onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut}>
         <div className="mx-auto max-w-5xl space-y-6">
           <section className="rounded-lg border border-slate-200 bg-white p-7 shadow-xl">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -857,11 +1499,190 @@ export default function App() {
     );
   }
 
+  if (state.stage === "team_report") {
+    if (auth.role !== "facilitator" && auth.role !== "admin") { setState((prev) => ({ ...prev, stage: "welcome" })); return null; }
+    const companies = Array.from(new Set(savedReports.map((r) => r.companyName).filter(Boolean))).sort();
+
+    const filtered = selectedCompany === "__all__"
+      ? savedReports
+      : savedReports.filter((r) => r.companyName === selectedCompany);
+
+    // Compute per-motivator stats
+    const stats = MOTIVATORS.map((motivator) => {
+      let positiveCount = 0;
+      let negativeCount = 0;
+      let neutralCount = 0;
+      let positiveSum = 0;
+      let negativeSum = 0;
+      for (const report of filtered) {
+        const score = report.scores[motivator.id];
+        if (score === undefined) continue;
+        if (score > 0) { positiveCount++; positiveSum += score; }
+        else if (score < 0) { negativeCount++; negativeSum += score; }
+        else neutralCount++;
+      }
+      const timesSelected = positiveCount + negativeCount + neutralCount;
+      return { motivator, timesSelected, positiveCount, negativeCount, neutralCount, positiveSum, negativeSum };
+    });
+
+    // Page 1: sorted by net count (positive - negative)
+    const countRows = [...stats].sort((a, b) => (b.positiveCount - b.negativeCount) - (a.positiveCount - a.negativeCount));
+    const maxCount = Math.max(...countRows.map((r) => r.timesSelected), 1);
+
+    // Page 2: sorted by total absolute value activity
+    const valueRows = [...stats].sort((a, b) => (b.positiveSum + Math.abs(b.negativeSum)) - (a.positiveSum + Math.abs(a.negativeSum)));
+    const maxValue = Math.max(...valueRows.map((r) => r.positiveSum + Math.abs(r.negativeSum)), 1);
+
+    const tabs = [
+      { key: "count", label: state.language === "fa" ? "تحلیل تعدادی" : "Number Analysis" },
+      { key: "value", label: state.language === "fa" ? "تحلیل ارزشی" : "Value Analysis" },
+    ] as const;
+    type Tab = typeof tabs[number]["key"];
+
+    return (
+      <Shell language={state.language} onToggleLanguage={toggleLanguage} onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut}>
+        <div className="mx-auto max-w-4xl space-y-6">
+          {/* Header */}
+          <section className="rounded-lg border border-slate-200 bg-white p-7 shadow-xl">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">{t.teamReport}</h1>
+                <p className="mt-2 max-w-2xl font-medium leading-relaxed text-slate-500">{t.teamReportBody}</p>
+              </div>
+              <button type="button" onClick={backToStart} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50">
+                <ChevronLeft size={16} />
+                {t.backToStart}
+              </button>
+              <button type="button" onClick={() => exportTeamReportPDF(stats, selectedCompany, state.language, maxCount, maxValue)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50 print:hidden">
+                <Printer size={16} />
+                PDF
+              </button>
+              <button type="button" onClick={() => exportTeamReportExcel(stats, selectedCompany, state.language)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50 print:hidden">
+                <FileDown size={16} />
+                Excel
+              </button>
+            </div>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">{t.filterByCompany}</label>
+              <select
+                value={selectedCompany}
+                onChange={(e) => setSelectedCompany(e.target.value)}
+                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-slate-400 focus:bg-white"
+              >
+                <option value="__all__">{t.allCompanies} ({savedReports.length} {t.participants})</option>
+                {companies.map((c) => (
+                  <option key={c} value={c}>{c} ({savedReports.filter((r) => r.companyName === c).length} {t.participants})</option>
+                ))}
+              </select>
+            </div>
+          </section>
+
+          {filtered.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
+              <p className="text-lg font-black text-slate-700">{t.noReportsForCompany}</p>
+            </div>
+          ) : (
+            <>
+              {/* Tabs */}
+              <div className="flex gap-2 rounded-lg border border-slate-200 bg-white p-1.5 shadow-sm">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setTeamReportTab(tab.key)}
+                    className={`flex-1 rounded-md py-2.5 text-sm font-black transition ${teamReportTab === tab.key ? "bg-slate-950 text-white shadow" : "text-slate-500 hover:text-slate-800"}`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Page 1: Number Analysis */}
+              {teamReportTab === "count" && (
+                <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+                  <p className="mb-4 text-xs font-bold text-slate-400">
+                    {state.language === "fa"
+                      ? "\u0645\u0631\u062a\u0628\u200c\u0633\u0627\u0632\u06cc \u0628\u0631 \u0627\u0633\u0627\u0633: \u062a\u0639\u062f\u0627\u062f \u0645\u062b\u0628\u062a \u0645\u0646\u0647\u0627\u06cc \u062a\u0639\u062f\u0627\u062f \u0645\u0646\u0641\u06cc"
+                      : "Sorted by: positive count \u2212 negative count"}
+                  </p>
+                  {countRows.map(({ motivator, positiveCount, negativeCount }) => {
+                    const copy = getMotivatorText(motivator, state.language);
+                    const posW = (positiveCount / maxCount) * 100;
+                    const negW = (negativeCount / maxCount) * 100;
+                    return (
+                      <div key={motivator.id} className="grid grid-cols-[1fr_160px_1fr] items-center gap-2">
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="w-6 text-end text-xs font-black text-red-500">−{negativeCount}</span>
+                          <div className="h-4 w-full overflow-hidden rounded-l-full bg-slate-100">
+                            <div className="ml-auto h-full rounded-l-full bg-red-400 transition-all" style={{ width: `${negW}%` }} />
+                          </div>
+                        </div>
+                        <span className="truncate text-center text-sm font-bold text-slate-800" title={copy.title}>{copy.title}</span>
+                        <div className="flex items-center gap-2">
+                          <div className="h-4 w-full overflow-hidden rounded-r-full bg-slate-100">
+                            <div className="h-full rounded-r-full bg-emerald-500 transition-all" style={{ width: `${posW}%` }} />
+                          </div>
+                          <span className="w-6 text-xs font-black text-emerald-600">+{positiveCount}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="mt-4 flex items-center gap-4 border-t border-slate-100 pt-4 text-xs font-bold text-slate-500">
+                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-red-400" />{state.language === "fa" ? "\u062a\u0639\u062f\u0627\u062f \u0645\u0646\u0641\u06cc" : "Negative count"}</span>
+                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-emerald-500" />{state.language === "fa" ? "\u062a\u0639\u062f\u0627\u062f \u0645\u062b\u0628\u062a" : "Positive count"}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Page 2: Value Analysis */}
+              {teamReportTab === "value" && (
+                <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+                  <p className="mb-4 text-xs font-bold text-slate-400">
+                    {state.language === "fa"
+                      ? "\u0645\u0631\u062a\u0628\u200c\u0633\u0627\u0632\u06cc \u0628\u0631 \u0627\u0633\u0627\u0633: \u0645\u062c\u0645\u0648\u0639 \u0645\u062b\u0628\u062a + \u0642\u062f\u0631 \u0645\u0637\u0644\u0642 \u0645\u062c\u0645\u0648\u0639 \u0645\u0646\u0641\u06cc"
+                      : "Sorted by: positive sum + |negative sum|"}
+                  </p>
+                  {valueRows.map(({ motivator, positiveSum, negativeSum }) => {
+                    const copy = getMotivatorText(motivator, state.language);
+                    const absNeg = Math.abs(negativeSum);
+                    const posW = (positiveSum / maxValue) * 100;
+                    const negW = (absNeg / maxValue) * 100;
+                    return (
+                      <div key={motivator.id} className="grid grid-cols-[1fr_160px_1fr] items-center gap-2">
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="w-8 text-end text-xs font-black text-red-500">{negativeSum < 0 ? negativeSum : "\u2014"}</span>
+                          <div className="h-4 w-full overflow-hidden rounded-l-full bg-slate-100">
+                            <div className="ml-auto h-full rounded-l-full bg-red-400 transition-all" style={{ width: `${negW}%` }} />
+                          </div>
+                        </div>
+                        <span className="truncate text-center text-sm font-bold text-slate-800" title={copy.title}>{copy.title}</span>
+                        <div className="flex items-center gap-2">
+                          <div className="h-4 w-full overflow-hidden rounded-r-full bg-slate-100">
+                            <div className="h-full rounded-r-full bg-emerald-500 transition-all" style={{ width: `${posW}%` }} />
+                          </div>
+                          <span className="w-8 text-xs font-black text-emerald-600">{positiveSum > 0 ? `+${positiveSum}` : "\u2014"}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="mt-4 flex items-center gap-4 border-t border-slate-100 pt-4 text-xs font-bold text-slate-500">
+                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-red-400" />{state.language === "fa" ? "\u0645\u062c\u0645\u0648\u0639 \u0645\u0646\u0641\u06cc" : "Negative sum"}</span>
+                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-emerald-500" />{state.language === "fa" ? "\u0645\u062c\u0645\u0648\u0639 \u0645\u062b\u0628\u062a" : "Positive sum"}</span>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </Shell>
+    );
+  }
+
   if (state.stage === "instructions") {
     const instructions = [t.instruction1, t.instruction2, t.instruction3];
 
     return (
-      <Shell language={state.language} onToggleLanguage={toggleLanguage} compact>
+      <Shell language={state.language} onToggleLanguage={toggleLanguage} compact onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut}>
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="rounded-lg border border-slate-200 bg-white p-7 shadow-xl sm:p-9">
           <h2 className="mb-7 flex items-center gap-3 text-2xl font-black tracking-tight text-slate-900">
             <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
@@ -892,7 +1713,7 @@ export default function App() {
     const progress = Math.round((state.discardedCards.length / totalChoices) * 100);
 
     return (
-      <Shell language={state.language} onToggleLanguage={toggleLanguage}>
+      <Shell language={state.language} onToggleLanguage={toggleLanguage} onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut}>
         <div className="flex min-h-[calc(100vh-110px)] flex-col gap-6">
           <header className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
@@ -958,7 +1779,7 @@ export default function App() {
 
   if (state.stage === "level2_intro") {
     return (
-      <Shell language={state.language} onToggleLanguage={toggleLanguage} compact>
+      <Shell language={state.language} onToggleLanguage={toggleLanguage} compact onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut}>
         <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="rounded-lg border border-slate-200 bg-white p-8 text-center shadow-xl sm:p-10">
           <div className="mx-auto mb-7 flex h-20 w-20 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
             <CheckCircle2 size={42} />
@@ -980,7 +1801,7 @@ export default function App() {
     const scoringProgress = Math.round((scoredCount / 6) * 100);
 
     return (
-      <Shell language={state.language} onToggleLanguage={toggleLanguage}>
+      <Shell language={state.language} onToggleLanguage={toggleLanguage} onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut}>
         <div className="mx-auto max-w-5xl space-y-6">
           <header className="rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
             <p className="text-sm font-black uppercase tracking-widest text-blue-600">{t.level2}</p>
@@ -1058,7 +1879,7 @@ export default function App() {
 
   if (state.stage === "results") {
     return (
-      <Shell language={state.language} onToggleLanguage={toggleLanguage}>
+      <Shell language={state.language} onToggleLanguage={toggleLanguage} onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut}>
         <main className="mx-auto max-w-6xl space-y-6 print:max-w-none">
           <div id="motivation-report" className="space-y-6 bg-slate-100 p-0">
             <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">

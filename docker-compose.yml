@@ -5,4 +5,9 @@ services:
     image: motivator-game:latest
     ports:
       - "8080:8080"
+    volumes:
+      - motivator-data:/data
     restart: unless-stopped
+
+volumes:
+  motivator-data:
