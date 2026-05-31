@@ -174,6 +174,7 @@ const TEXT = {
     reveal: "Reveal Next Choice",
     discard: "Discard least important",
     discardPrompt: "Discard one motivator to continue.",
+    back: "Back",
     restart: "Restart",
     instructions: "Instructions",
     instruction1: "You always keep 6 cards in your hand.",
@@ -288,6 +289,7 @@ const TEXT = {
     reveal: "نمایش گزینه بعدی",
     discard: "حذف کم اهمیت ترین",
     discardPrompt: "برای ادامه، یک انگیزاننده را حذف کنید.",
+    back: "بازگشت",
     restart: "شروع دوباره",
     instructions: "راهنما",
     instruction1: "همیشه ۶ کارت در دست خود نگه می دارید.",
@@ -460,13 +462,14 @@ interface ShellProps {
   role?: Role | null;
   settingsLabel?: string;
   signOutLabel?: string;
+  forceDir?: "ltr" | "rtl";
 }
 
-const Shell: React.FC<ShellProps> = ({ children, language, onToggleLanguage, compact, onSignOut, onSettings, role, settingsLabel, signOutLabel }) => {
+const Shell: React.FC<ShellProps> = ({ children, language, onToggleLanguage, compact, onSignOut, onSettings, role, settingsLabel, signOutLabel, forceDir }) => {
   const t = TEXT[language];
 
   return (
-    <div className={`min-h-screen bg-slate-100 text-slate-900 ${language === "fa" ? "font-fa" : ""}`} dir={language === "fa" ? "rtl" : "ltr"}>
+    <div className={`min-h-screen bg-slate-100 text-slate-900 ${language === "fa" ? "font-fa" : ""}`} dir={forceDir ?? (language === "fa" ? "rtl" : "ltr")}>
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.12),transparent_34%)]" />
       <div className={`relative mx-auto w-full ${compact ? "max-w-3xl" : "max-w-7xl"} px-4 py-5 sm:px-6 lg:px-8`}>
         <div className="mb-5 flex items-center justify-between gap-3 print:hidden">
@@ -592,6 +595,7 @@ export default function App() {
   const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string>("__all__");
   const [teamReportTab, setTeamReportTab] = useState<"count" | "value">("count");
+  const [playHistory, setPlayHistory] = useState<Array<Pick<GameState, "activeCards" | "discardedCards" | "currentIndex" | "newestCardId" | "stage">>>([]);
   const [auth, setAuth] = useState<AuthState>(() => {
     const saved = localStorage.getItem("hr_motivator_role");
     const role = (saved === "facilitator" || saved === "participant" || saved === "admin") ? saved as Role : null;
@@ -727,6 +731,7 @@ export default function App() {
     if (!participantName || !participantPosition || !companyName) return;
 
     const deck = shuffle(MOTIVATORS);
+    setPlayHistory([]);
     setState((prev) => ({
       ...prev,
       participantName,
@@ -749,9 +754,26 @@ export default function App() {
     if (state.stage === "level2_intro") setState((prev) => ({ ...prev, stage: "level2_scoring" }));
   };
 
+  const pushPlaySnapshot = () => {
+    setPlayHistory((prev) => [
+      ...prev,
+      { activeCards: state.activeCards, discardedCards: state.discardedCards, currentIndex: state.currentIndex, newestCardId: state.newestCardId, stage: state.stage },
+    ]);
+  };
+
+  const undoPlay = () => {
+    setPlayHistory((prev) => {
+      if (prev.length === 0) return prev;
+      const snapshot = prev[prev.length - 1];
+      setState((s) => ({ ...s, ...snapshot }));
+      return prev.slice(0, -1);
+    });
+  };
+
   const nextCard = () => {
     if (state.currentIndex >= state.shuffledDeck.length) return;
     const card = state.shuffledDeck[state.currentIndex];
+    pushPlaySnapshot();
     setState((prev) => ({
       ...prev,
       activeCards: [...prev.activeCards, card],
@@ -766,6 +788,7 @@ export default function App() {
     const remaining = state.activeCards.filter((card) => card.id !== id);
     const isGameOver = state.currentIndex === state.shuffledDeck.length;
 
+    pushPlaySnapshot();
     setState((prev) => ({
       ...prev,
       activeCards: remaining,
@@ -1540,7 +1563,7 @@ export default function App() {
     type Tab = typeof tabs[number]["key"];
 
     return (
-      <Shell language={state.language} onToggleLanguage={toggleLanguage} onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut}>
+      <Shell language={state.language} onToggleLanguage={toggleLanguage} onSignOut={signOut} onSettings={() => setState((prev) => ({ ...prev, stage: "admin_settings" }))} role={auth.role} settingsLabel={t.settings} signOutLabel={t.signOut} forceDir="ltr">
         <div className="mx-auto max-w-4xl space-y-6">
           {/* Header */}
           <section className="rounded-lg border border-slate-200 bg-white p-7 shadow-xl">
@@ -1698,10 +1721,16 @@ export default function App() {
               </div>
             ))}
           </div>
-          <button type="button" onClick={nextStage} className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 py-4 font-black text-white shadow-lg transition hover:bg-slate-800">
-            {t.gotIt}
-            <NextIcon size={20} />
-          </button>
+          <div className="mt-8 flex gap-3">
+            <button type="button" onClick={() => setState((prev) => ({ ...prev, stage: "welcome" }))} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-5 py-4 font-black text-slate-600 transition hover:bg-slate-50">
+              <ChevronLeft size={18} />
+              {t.back}
+            </button>
+            <button type="button" onClick={nextStage} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-950 py-4 font-black text-white shadow-lg transition hover:bg-slate-800">
+              {t.gotIt}
+              <NextIcon size={20} />
+            </button>
+          </div>
         </motion.div>
       </Shell>
     );
@@ -1755,10 +1784,16 @@ export default function App() {
 
           <footer className="sticky bottom-0 z-10 rounded-lg border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur print:hidden">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <button type="button" onClick={resetGame} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-black text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
-                <RefreshCcw size={16} />
-                {t.restart}
-              </button>
+              <div className="flex gap-2">
+                <button type="button" onClick={resetGame} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-black text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
+                  <RefreshCcw size={16} />
+                  {t.restart}
+                </button>
+                <button type="button" onClick={undoPlay} disabled={playHistory.length === 0} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-black text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                  <ChevronLeft size={16} />
+                  {t.back}
+                </button>
+              </div>
               {!isFull ? (
                 <button type="button" onClick={nextCard} className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-6 py-3 text-sm font-black text-white shadow-lg transition hover:bg-slate-800">
                   {t.reveal}
@@ -1786,10 +1821,16 @@ export default function App() {
           </div>
           <h2 className="text-3xl font-black tracking-tight text-slate-950">{t.level1Complete}</h2>
           <p className="mx-auto mt-4 max-w-md text-base font-medium leading-relaxed text-slate-500">{t.level1CompleteBody}</p>
-          <button type="button" onClick={nextStage} className="mt-9 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 py-4 font-black text-white shadow-lg transition hover:bg-slate-800">
-            {t.forwardLevel2}
-            <NextIcon size={20} />
-          </button>
+          <div className="mt-9 flex gap-3">
+            <button type="button" onClick={() => setState((prev) => ({ ...prev, stage: "playing" }))} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-5 py-4 font-black text-slate-600 transition hover:bg-slate-50">
+              <ChevronLeft size={18} />
+              {t.back}
+            </button>
+            <button type="button" onClick={nextStage} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-950 py-4 font-black text-white shadow-lg transition hover:bg-slate-800">
+              {t.forwardLevel2}
+              <NextIcon size={20} />
+            </button>
+          </div>
         </motion.div>
       </Shell>
     );
@@ -1861,17 +1902,23 @@ export default function App() {
             })}
           </div>
 
-          <button
-            type="button"
-            onClick={finishGame}
-            disabled={!isComplete}
-            className={`inline-flex w-full items-center justify-center gap-2 rounded-lg py-5 text-lg font-black shadow-lg transition ${
-              isComplete ? "bg-slate-950 text-white hover:bg-slate-800" : "cursor-not-allowed bg-slate-200 text-slate-400 shadow-none"
-            }`}
-          >
-            {t.showReport}
-            <NextIcon size={20} />
-          </button>
+          <div className="flex gap-3">
+            <button type="button" onClick={() => setState((prev) => ({ ...prev, stage: "level2_intro" }))} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-5 py-5 font-black text-slate-600 transition hover:bg-slate-50">
+              <ChevronLeft size={18} />
+              {t.back}
+            </button>
+            <button
+              type="button"
+              onClick={finishGame}
+              disabled={!isComplete}
+              className={`inline-flex flex-1 items-center justify-center gap-2 rounded-lg py-5 text-lg font-black shadow-lg transition ${
+                isComplete ? "bg-slate-950 text-white hover:bg-slate-800" : "cursor-not-allowed bg-slate-200 text-slate-400 shadow-none"
+              }`}
+            >
+              {t.showReport}
+              <NextIcon size={20} />
+            </button>
+          </div>
         </div>
       </Shell>
     );
@@ -1927,7 +1974,8 @@ export default function App() {
                 <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500">{t.reportSystemBody}</p>
                 <div className="mt-6 space-y-4">
                   {reportItems.map((item) => {
-                    const width = `${((item.score + 3) / 6) * 100}%`;
+                    const pct = ((item.score + 3) / 6) * 100;
+                    const width = `${pct === 0 ? 2 : pct}%`;
                     return (
                       <div key={item.card.id}>
                         <div className="mb-1 flex items-center justify-between gap-4 text-xs font-black">
