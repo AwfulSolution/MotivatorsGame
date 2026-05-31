@@ -215,6 +215,7 @@ const TEXT = {
     openReport: "Open Report",
     deleteReport: "Delete",
     backToStart: "Back to Start",
+    backToReports: "Back to Reports",
     savedAutomatically: "Saved automatically",
     lastUpdated: "Last updated",
     teamReport: "Team Report",
@@ -330,6 +331,7 @@ const TEXT = {
     openReport: "باز کردن گزارش",
     deleteReport: "حذف",
     backToStart: "بازگشت به شروع",
+    backToReports: "بازگشت به گزارش‌ها",
     savedAutomatically: "ذخیره خودکار",
     lastUpdated: "آخرین به روزرسانی",
     teamReport: "گزارش تیمی",
@@ -596,6 +598,7 @@ export default function App() {
   const [selectedCompany, setSelectedCompany] = useState<string>("__all__");
   const [teamReportTab, setTeamReportTab] = useState<"count" | "value">("count");
   const [playHistory, setPlayHistory] = useState<Array<Pick<GameState, "activeCards" | "discardedCards" | "currentIndex" | "newestCardId" | "stage">>>([]);
+  const [resultSource, setResultSource] = useState<"game" | "saved_reports">("game");
   const [auth, setAuth] = useState<AuthState>(() => {
     const saved = localStorage.getItem("hr_motivator_role");
     const role = (saved === "facilitator" || saved === "participant" || saved === "admin") ? saved as Role : null;
@@ -804,6 +807,7 @@ export default function App() {
 
   const finishGame = () => {
     if (Object.keys(state.scores).length < 6) return;
+    setResultSource("game");
     setState((prev) => ({ ...prev, stage: "results", currentReportId: prev.currentReportId || createReportId() }));
     confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
   };
@@ -838,6 +842,7 @@ export default function App() {
   };
 
   const openSavedReport = (report: SavedReport) => {
+    setResultSource("saved_reports");
     setState((prev) => ({
       ...prev,
       stage: "results",
@@ -1974,8 +1979,7 @@ export default function App() {
                 <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500">{t.reportSystemBody}</p>
                 <div className="mt-6 space-y-4">
                   {reportItems.map((item) => {
-                    const pct = ((item.score + 3) / 6) * 100;
-                    const width = `${pct === 0 ? 2 : pct}%`;
+                    const width = `${(Math.abs(item.score) / 3) * 100}%`;
                     return (
                       <div key={item.card.id}>
                         <div className="mb-1 flex items-center justify-between gap-4 text-xs font-black">
@@ -2020,14 +2024,22 @@ export default function App() {
           </div>
 
           <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:flex-row print:hidden">
+            {resultSource === "saved_reports" && (
+              <button type="button" onClick={() => setState((prev) => ({ ...prev, stage: "saved_reports" }))} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 py-4 font-black text-slate-600 transition hover:bg-slate-50">
+                <ChevronLeft size={20} />
+                {t.backToReports}
+              </button>
+            )}
             <button type="button" onClick={exportPDF} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-950 py-4 font-black text-white transition hover:bg-slate-800">
               <Printer size={20} />
               {t.exportPDF}
             </button>
-            <button type="button" onClick={resetGame} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 py-4 font-black text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
-              <RefreshCcw size={20} />
-              {t.newSession}
-            </button>
+            {resultSource === "game" && (
+              <button type="button" onClick={resetGame} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 py-4 font-black text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
+                <RefreshCcw size={20} />
+                {t.newSession}
+              </button>
+            )}
           </div>
         </main>
       </Shell>
