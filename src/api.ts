@@ -97,6 +97,12 @@ export interface Company {
   testLimit: number | null;
 }
 
+export async function checkCompanyLimit(companyId: string, department?: string): Promise<{ allowed: boolean; reason?: string | undefined }> {
+  const params = new URLSearchParams({ companyId });
+  if (department) params.set("department", department);
+  return api("GET", `/api/companies/check-limit?${params}`);
+}
+
 export async function resolveCompanyCode(code: string): Promise<{ id: string; name: string; code: string; departments: Department[] } | null> {
   try {
     return await api("GET", `/api/companies/resolve?code=${encodeURIComponent(code)}`);

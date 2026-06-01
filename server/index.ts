@@ -147,6 +147,32 @@ app.get("/api/companies/resolve", (req, res) => {
   res.json({ id: company.id, name: company.name, code: company.access_code, departments });
 });
 
+app.get("/api/companies/check-limit", (req, res) => {
+  const companyId = (req.query.companyId as string) || "";
+  const department = (req.query.department as string) || "";
+  if (!companyId) { res.json({ allowed: true }); return; }
+
+  const company = db.prepare("SELECT test_limit, departments FROM companies WHERE id = ?").get(companyId) as any;
+  if (!company) { res.json({ allowed: true }); return; }
+
+  if (company.test_limit !== null) {
+    const count = (db.prepare("SELECT COUNT(*) as n FROM reports WHERE company_id = ?").get(companyId) as any).n;
+    if (count >= company.test_limit) { res.json({ allowed: false, reason: "company_limit_reached" }); return; }
+  }
+
+  if (department) {
+    let depts: { name: string; limit?: number | null }[] = [];
+    try { depts = JSON.parse(company.departments || "[]"); } catch { depts = []; }
+    const deptConfig = depts.find((d) => d.name === department);
+    if (deptConfig?.limit != null) {
+      const count = (db.prepare("SELECT COUNT(*) as n FROM reports WHERE company_id = ? AND department = ?").get(companyId, department) as any).n;
+      if (count >= deptConfig.limit) { res.json({ allowed: false, reason: "department_limit_reached" }); return; }
+    }
+  }
+
+  res.json({ allowed: true });
+});
+
 // ── Companies — admin CRUD ────────────────────────────────────────────────────
 
 app.get("/api/admin/companies", requireAdmin, (_req, res) => {

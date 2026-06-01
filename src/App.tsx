@@ -331,6 +331,8 @@ const TEXT = {
     companySettings: "Settings",
     limitReached: "This session could not be saved — the company's test limit has been reached.",
     departmentLimitReached: "This session could not be saved — the department's test limit has been reached.",
+    companyLimitBlockStart: "This company has reached its maximum number of tests. Please contact your facilitator.",
+    departmentLimitBlockStart: "This department has reached its maximum number of tests. Please contact your facilitator.",
     filterBySex: "Filter by sex",
     filterBySeniority: "Filter by seniority",
     filterByDepartment: "Filter by department",
@@ -490,6 +492,8 @@ const TEXT = {
     companySettings: "تنظیمات",
     limitReached: "این جلسه ذخیره نشد — سقف تست شرکت پر شده است.",
     departmentLimitReached: "این جلسه ذخیره نشد — سقف تست دپارتمان پر شده است.",
+    companyLimitBlockStart: "این شرکت به حداکثر تعداد تست‌های خود رسیده است. با تسهیل‌گر خود تماس بگیرید.",
+    departmentLimitBlockStart: "این دپارتمان به حداکثر تعداد تست‌های خود رسیده است. با تسهیل‌گر خود تماس بگیرید.",
     filterBySex: "فیلتر بر اساس جنسیت",
     filterBySeniority: "فیلتر بر اساس ارشدیت",
     filterByDepartment: "فیلتر بر اساس دپارتمان",
@@ -737,6 +741,7 @@ export default function App() {
 
   // Limit error state (results screen)
   const [limitError, setLimitError] = useState<string | null>(null);
+  const [limitCheckError, setLimitCheckError] = useState<string | null>(null);
 
   // Team report filters
   const [teamFilterSex, setTeamFilterSex] = useState<string>("__all__");
@@ -883,11 +888,21 @@ export default function App() {
     setState((prev) => ({ ...prev, language: prev.language === "en" ? "fa" : "en" }));
   };
 
-  const startGame = () => {
+  const startGame = async () => {
     const participantName = state.participantName.trim();
     const participantPosition = state.participantPosition.trim();
     const companyName = resolvedCompany ? resolvedCompany.name : state.companyName.trim();
     if (!participantName || !participantPosition || !companyName) return;
+
+    setLimitCheckError(null);
+    if (resolvedCompany) {
+      const check = await api.checkCompanyLimit(resolvedCompany.id, state.department || undefined).catch(() => ({ allowed: true as const, reason: undefined }));
+      if (!check.allowed) {
+        const msg = check.reason === "department_limit_reached" ? t.departmentLimitBlockStart : t.companyLimitBlockStart;
+        setLimitCheckError(msg);
+        return;
+      }
+    }
 
     const deck = shuffle(MOTIVATORS);
     setPlayHistory([]);
@@ -1733,7 +1748,7 @@ export default function App() {
                 <span className="mb-2 block text-[11px] font-black uppercase tracking-widest text-slate-500">{t.department}</span>
                 <select
                   value={state.department}
-                  onChange={(e) => setState((prev) => ({ ...prev, department: e.target.value }))}
+                  onChange={(e) => { setLimitCheckError(null); setState((prev) => ({ ...prev, department: e.target.value })); }}
                   className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
                 >
                   <option value="">{t.selectDepartment}</option>
@@ -1744,11 +1759,17 @@ export default function App() {
               </label>
             )}
 
+            {limitCheckError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+                {limitCheckError}
+              </div>
+            )}
+
             <button
               type="button"
               onClick={startGame}
               disabled={!isReadyToStart}
-              className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg py-4 text-base font-black shadow-lg transition ${
+              className={`inline-flex w-full items-center justify-center gap-2 rounded-lg py-4 text-base font-black shadow-lg transition ${
                 isReadyToStart ? "bg-slate-950 text-white hover:bg-slate-800" : "cursor-not-allowed bg-slate-100 text-slate-300 shadow-none"
               }`}
             >
