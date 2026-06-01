@@ -142,6 +142,10 @@ export async function upsertReport(report: SavedReportDTO): Promise<void> {
   await api("POST", "/api/reports", report);
 }
 
+export async function patchReport(id: string, fields: { participantName?: string; participantPosition?: string; companyName?: string; companyId?: string | null }): Promise<void> {
+  await api("PATCH", `/api/reports/${id}`, fields);
+}
+
 export async function deleteReport(id: string): Promise<void> {
   await api("DELETE", `/api/reports/${id}`);
 }

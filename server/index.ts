@@ -224,6 +224,20 @@ app.post("/api/reports", (req, res) => {
   res.json({ ok: true });
 });
 
+app.patch("/api/reports/:id", requireAuth, (req, res) => {
+  const session = (req as any).session as Session;
+  const { participantName, participantPosition, companyName, companyId } = req.body;
+  const now = new Date().toISOString();
+  if (session.role === "facilitator") {
+    db.prepare(`UPDATE reports SET updated_at=?, participant_name=COALESCE(?,participant_name), participant_position=COALESCE(?,participant_position) WHERE id=? AND company_id=?`)
+      .run(now, participantName ?? null, participantPosition ?? null, req.params.id, session.companyId!);
+  } else {
+    db.prepare(`UPDATE reports SET updated_at=?, participant_name=COALESCE(?,participant_name), participant_position=COALESCE(?,participant_position), company_name=COALESCE(?,company_name), company_id=? WHERE id=?`)
+      .run(now, participantName ?? null, participantPosition ?? null, companyName ?? null, companyId ?? null, req.params.id);
+  }
+  res.json({ ok: true });
+});
+
 app.delete("/api/reports/:id", requireAuth, (req, res) => {
   const session = (req as any).session as Session;
   if (session.role === "facilitator") {

@@ -10,6 +10,7 @@ import {
   FolderOpen,
   Info,
   Languages,
+  Pencil,
   Play,
   Printer,
   RefreshCcw,
@@ -213,7 +214,13 @@ const TEXT = {
     viewSavedReports: "View Saved Reports",
     noSavedReports: "No saved reports yet.",
     openReport: "Open Report",
+    editReport: "Edit",
     deleteReport: "Delete",
+    editParticipant: "Edit Participant",
+    assignCompany: "Assign Company",
+    noCompany: "No company",
+    saveChanges: "Save",
+    cancelEdit: "Cancel",
     backToStart: "Back to Start",
     backToReports: "Back to Reports",
     savedAutomatically: "Saved automatically",
@@ -329,7 +336,13 @@ const TEXT = {
     viewSavedReports: "مشاهده گزارش ها",
     noSavedReports: "هنوز گزارشی ذخیره نشده است.",
     openReport: "باز کردن گزارش",
+    editReport: "ویرایش",
     deleteReport: "حذف",
+    editParticipant: "ویرایش شرکت‌کننده",
+    assignCompany: "تخصیص شرکت",
+    noCompany: "بدون شرکت",
+    saveChanges: "ذخیره",
+    cancelEdit: "انصراف",
     backToStart: "بازگشت به شروع",
     backToReports: "بازگشت به گزارش‌ها",
     savedAutomatically: "ذخیره خودکار",
@@ -597,6 +610,8 @@ export default function App() {
   const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string>("__all__");
   const [teamReportTab, setTeamReportTab] = useState<"count" | "value">("count");
+  const [editingReportId, setEditingReportId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ participantName: "", participantPosition: "", companyName: "", companyId: "" });
   const [playHistory, setPlayHistory] = useState<Array<Pick<GameState, "activeCards" | "discardedCards" | "currentIndex" | "newestCardId" | "stage">>>([]);
   const [resultSource, setResultSource] = useState<"game" | "saved_reports">("game");
   const [auth, setAuth] = useState<AuthState>(() => {
@@ -855,7 +870,6 @@ export default function App() {
       participantName: report.participantName,
       participantPosition: report.participantPosition,
       companyName: report.companyName,
-      language: report.language,
       currentReportId: report.id,
     }));
   };
@@ -866,6 +880,27 @@ export default function App() {
     if (state.currentReportId === id) {
       setState((prev) => ({ ...prev, currentReportId: null }));
     }
+  };
+
+  const startEditReport = (report: SavedReport) => {
+    if (auth.role === "admin") api.fetchCompanies().then(setCompanies).catch(console.error);
+    setEditForm({
+      participantName: report.participantName,
+      participantPosition: report.participantPosition,
+      companyName: report.companyName,
+      companyId: report.companyId ?? "",
+    });
+    setEditingReportId(report.id);
+  };
+
+  const saveReportEdit = async () => {
+    if (!editingReportId) return;
+    const fields = auth.role === "admin"
+      ? { participantName: editForm.participantName, participantPosition: editForm.participantPosition, companyName: editForm.companyName, companyId: editForm.companyId || null }
+      : { participantName: editForm.participantName, participantPosition: editForm.participantPosition };
+    await api.patchReport(editingReportId, fields).catch(console.error);
+    setSavedReports((prev) => prev.map((r) => r.id === editingReportId ? { ...r, ...fields, companyId: (fields as any).companyId ?? r.companyId, companyName: (fields as any).companyName ?? r.companyName } : r));
+    setEditingReportId(null);
   };
 
   const backToStart = () => {
@@ -1499,6 +1534,48 @@ export default function App() {
                       {t.lastUpdated}: {updatedDate}
                     </p>
 
+                    {editingReportId === report.id && (
+                      <div className="mt-4 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">{t.editParticipant}</p>
+                        <input
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-slate-400"
+                          value={editForm.participantName}
+                          onChange={(e) => setEditForm((f) => ({ ...f, participantName: e.target.value }))}
+                          placeholder={t.participantName}
+                        />
+                        <input
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-slate-400"
+                          value={editForm.participantPosition}
+                          onChange={(e) => setEditForm((f) => ({ ...f, participantPosition: e.target.value }))}
+                          placeholder={t.position}
+                        />
+                        {auth.role === "admin" && (
+                          <div className="space-y-2">
+                            <p className="text-xs font-black uppercase tracking-widest text-slate-500">{t.assignCompany}</p>
+                            <select
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-slate-400"
+                              value={editForm.companyId}
+                              onChange={(e) => {
+                                const c = companies.find((c) => c.id === e.target.value);
+                                setEditForm((f) => ({ ...f, companyId: e.target.value, companyName: c?.name ?? "" }));
+                              }}
+                            >
+                              <option value="">{t.noCompany}</option>
+                              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                          </div>
+                        )}
+                        <div className="flex gap-2 pt-1">
+                          <button type="button" onClick={saveReportEdit} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-black text-white transition hover:bg-slate-800">
+                            {t.saveChanges}
+                          </button>
+                          <button type="button" onClick={() => setEditingReportId(null)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-black text-slate-500 transition hover:bg-slate-50">
+                            {t.cancelEdit}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="mt-5 flex gap-2">
                       <button
                         type="button"
@@ -1507,6 +1584,14 @@ export default function App() {
                       >
                         <Eye size={16} />
                         {t.openReport}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => startEditReport(report)}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-black text-slate-500 transition hover:bg-slate-50"
+                      >
+                        <Pencil size={16} />
+                        {t.editReport}
                       </button>
                       <button
                         type="button"
