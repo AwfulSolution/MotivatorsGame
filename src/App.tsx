@@ -1364,6 +1364,16 @@ export default function App() {
     ${topMotivatorCopy ? statCard(topMotivatorCopy.title, isFA ? "محبوب‌ترین انگیزاننده" : "Most Chosen") : ""}
   </div>
 
+  <!-- Category Breakdown -->
+  ${section(
+    isFA ? "تفکیک دسته‌ها" : "Category Breakdown",
+    isFA ? "مرتب‌سازی: سهم از کل انتخاب‌ها" : "sorted by share of all motivator selections",
+    `<table style="width:100%;border-collapse:collapse">${catRows}</table>
+     <div style="margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9;font-size:9px;color:#94a3b8;font-weight:700">
+       ${totalSel} ${isFA ? "کل انتخاب‌ها" : "total selections"} · ${participantCount} ${isFA ? "شرکت‌کننده" : "participants"}
+     </div>`
+  )}
+
   <!-- Number Analysis -->
   ${section(
     isFA ? "تحلیل تعدادی" : "Number Analysis",
@@ -1378,16 +1388,6 @@ export default function App() {
     isFA ? "مرتب‌سازی: مجموع مثبت + قدر مطلق مجموع منفی  ·  درصد زیر نام = نرخ کاربرد" : "sorted by positive sum + |negative sum|  ·  % below name = adoption rate",
     `<table style="width:100%;border-collapse:collapse;table-layout:fixed">${valueTable}</table>
      ${legend([{ color: "#f87171", label: isFA ? "مجموع منفی" : "Negative sum" }, { color: "#34d399", label: isFA ? "مجموع مثبت" : "Positive sum" }])}`
-  )}
-
-  <!-- Category Breakdown -->
-  ${section(
-    isFA ? "تفکیک دسته‌ها" : "Category Breakdown",
-    isFA ? "مرتب‌سازی: سهم از کل انتخاب‌ها" : "sorted by share of all motivator selections",
-    `<table style="width:100%;border-collapse:collapse">${catRows}</table>
-     <div style="margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9;font-size:9px;color:#94a3b8;font-weight:700">
-       ${totalSel} ${isFA ? "کل انتخاب‌ها" : "total selections"} · ${participantCount} ${isFA ? "شرکت‌کننده" : "participants"}
-     </div>`
   )}
 
 </div>
