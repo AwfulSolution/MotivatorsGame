@@ -5,61 +5,74 @@ description: Run, start, build, screenshot, or smoke-test the Motivator Game app
 
 # run-motivator-game
 
-A bilingual React + Express + SQLite web app. The **agent path** is a shell smoke script that starts both servers, runs curl API checks, and takes headless Chrome screenshots. The human path is two terminals.
+A bilingual React + Express + SQLite web app. Two drivers live in this skill directory:
 
-All paths below are relative to the repo root (`/Users/taha/Code/hr-motivator-game`).
+- **`smoke.sh`** — starts servers, hits key API routes, takes headless Chrome screenshots
+- **`participant-run.mjs`** — drives a full participant flow end-to-end with Puppeteer (login → form → play → score → results)
+
+All paths are relative to the repo root.
 
 ---
 
 ## Prerequisites
 
 - Node.js 22+ (required for `node:sqlite`)
-- Google Chrome at `/Applications/Google Chrome.app/` (used for headless screenshots)
-- `python3` (used in smoke script to parse JSON)
-
-No extra `npm install` needed — deps are already installed.
+- Google Chrome at `/Applications/Google Chrome.app/`
+- `python3` in PATH
+- `puppeteer-core` in `node_modules` (already installed — `npm install` if missing)
 
 ---
 
-## Agent path — smoke script
+## Agent path 1 — smoke script (API + screenshots)
 
-Starts servers, hits all key API routes, takes screenshots, stops servers:
+Starts both servers, checks all key API routes, takes two screenshots, stops servers:
 
 ```bash
 bash .claude/skills/run-motivator-game/smoke.sh
 ```
 
-Add `--keep` to leave the servers running after the script exits (useful when you need to keep driving the UI):
+Add `--keep` to leave servers running:
 
 ```bash
 bash .claude/skills/run-motivator-game/smoke.sh --keep
 ```
 
-Screenshots land in a temp dir printed by the script (e.g. `/tmp/motivator-smoke-<pid>/`). Read them with the `Read` tool to visually inspect the UI.
+Screenshots land in a temp dir printed by the script. Read them with the `Read` tool.
 
-**What the script checks:**
-- `GET /api/health` → `{"ok":true}`
-- `POST /api/auth/admin` with `admin123` → token
-- `GET /api/admin/companies` → list (requires token)
-- `GET /api/companies/resolve?code=` → resolves first company, checks `departments` array
-- `GET /api/reports` → list
-- Screenshots: welcome screen, welcome screen with company code pre-filled via `?code=`
+**Checks:** health, admin login, list companies, resolve company code (verifies departments array), list reports, screenshots of welcome and `?code=` pre-fill screens.
+
+---
+
+## Agent path 2 — full participant run (Puppeteer)
+
+Drives a complete participant session: login → fill form → play all 52 motivators → level 2 scoring → results. Must be run from the repo root (so `node_modules` resolves). Servers must already be running (use `smoke.sh --keep` first).
+
+```bash
+bash .claude/skills/run-motivator-game/smoke.sh --keep 2>&1
+node .claude/skills/run-motivator-game/participant-run.mjs 2>&1
+```
+
+Screenshots land in the job tmp dir (`/Users/taha/.claude/jobs/*/tmp/run-*.png`). Key screenshots:
+- `run-05-playing.png` — Level 1 card selection screen
+- `run-07-level2-intro.png` — Level 1 complete transition
+- `run-09-scored.png` — Level 2 scoring with selected scores
+- `run-10-results.png` — Final report with all fields
+
+**State detection:** uses `localStorage.getItem('hr_motivator_game_simple')` to read the real game stage — more reliable than DOM text parsing.
 
 ---
 
 ## Human path
 
-Two terminals:
-
 ```bash
-# Terminal 1 — API (port 8080)
-npm run dev:server
+# Terminal 1
+npm run dev:server   # API on :8080
 
-# Terminal 2 — UI (port 3000, proxies /api → 8080)
-npm run dev
+# Terminal 2
+npm run dev          # UI on :3000
 ```
 
-Open http://localhost:3000. Default admin password: `admin123`.
+Open http://localhost:3000. Admin password: `admin123`.
 
 ---
 
@@ -67,8 +80,8 @@ Open http://localhost:3000. Default admin password: `admin123`.
 
 | URL | What you see |
 |---|---|
-| `http://localhost:3000` | Welcome screen (role select) |
-| `http://localhost:3000/?code=XXXXXXXX` | Welcome with company code pre-filled in Facilitator and participant form |
+| `http://localhost:3000` | Role-select login screen |
+| `http://localhost:3000/?code=XXXXXXXX` | Login with facilitator code pre-filled |
 | `http://localhost:8080/api/health` | `{"ok":true}` |
 
 ---
@@ -76,18 +89,17 @@ Open http://localhost:3000. Default admin password: `admin123`.
 ## Production build
 
 ```bash
-npm run build        # Vite → dist/
-npm run build:server # esbuild → dist-server/
-node --experimental-sqlite dist-server/index.js  # serves both on :8080
+npm run build && npm run build:server
+node --experimental-sqlite dist-server/index.js   # serves both on :8080
 ```
 
 ---
 
 ## Gotchas
 
-- **`--experimental-sqlite` is required.** The server won't start without it. `npm run dev:server` adds it via the tsx loader config; for manual runs always include it.
-- **Servers must both be running for the UI to work.** Vite proxies `/api` to `:8080`. A running Vite with a dead API server shows a blank or broken app.
-- **Sessions are in-memory and reset on server restart.** After restarting `dev:server`, all logged-in sessions (admin/facilitator) are invalidated. Re-login is required.
-- **The SQLite DB file is at `data/app.db`.** It persists across restarts. Schema migrations run safely on every startup (try/catch ALTER TABLE).
-- **Chrome headless screenshots need `--no-sandbox` on some systems.** Already included in the smoke script flags.
-- **`?code=` pre-fills the Facilitator code field** (not the participant form directly). The participant form appears after clicking "Participant" on the welcome screen.
+- **`--experimental-sqlite` is required** — the server won't start without it. `npm run dev:server` already includes it.
+- **Servers must both be running** — Vite proxies `/api` to `:8080`. Dead API = broken UI.
+- **Sessions reset on server restart** — all admin/facilitator sessions are in-memory only.
+- **`participant-run.mjs` must run from repo root** — `puppeteer-core` is in the project's `node_modules`.
+- **Screenshot tmp path is hardcoded** to `/Users/taha/.claude/jobs/424df234/tmp/` — update if job ID changes.
+- **Playing loop uses localStorage stage** not DOM text — DOM text parsing missed the `level2_intro` transition because it fires on a React state flush, not immediately.
