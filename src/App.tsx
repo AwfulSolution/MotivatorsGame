@@ -1215,6 +1215,7 @@ export default function App() {
 
   const exportTeamReportPDF = (
     rows: { motivator: Motivator; positiveCount: number; negativeCount: number; positiveSum: number; negativeSum: number; timesSelected: number }[],
+    participantCount: number,
     company: string,
     lang: Language,
     maxC: number,
@@ -1222,59 +1223,176 @@ export default function App() {
     activeFilters?: Record<string, string>,
   ) => {
     const filterSuffix = activeFilters ? Object.values(activeFilters).filter(Boolean).join(", ") : "";
-    const title = `Team Motivator Report${company !== "__all__" ? ` — ${company}` : ""}${filterSuffix ? ` (${filterSuffix})` : ""}`;
+    const title = `Team Motivator Report${company !== "__all__" ? ` — ${company}` : ""}`;
     const isFA = lang === "fa";
     const dir = isFA ? "rtl" : "ltr";
+    const dateStr = new Date().toLocaleDateString(isFA ? "fa-IR" : "en-US");
+    const totalSel = rows.reduce((s, r) => s + r.timesSelected, 0);
+
+    // Category breakdown
+    const CATCOLORS: Record<string, string> = {
+      "Working Style": "#2563eb", Environment: "#059669", Growth: "#9333ea",
+      Leadership: "#d97706", "Personal Flow": "#e11d48", Rewards: "#ca8a04",
+      Security: "#4f46e5", Social: "#ea580c", Wellbeing: "#0d9488",
+    };
+    const catBreakdown = [...new Set(rows.map((r) => r.motivator.category))]
+      .map((cat) => {
+        const cs = rows.filter((r) => r.motivator.category === cat);
+        const sel  = cs.reduce((s, r) => s + r.timesSelected, 0);
+        const posS = cs.reduce((s, r) => s + r.positiveSum, 0);
+        const negS = cs.reduce((s, r) => s + r.negativeSum, 0);
+        const posC = cs.reduce((s, r) => s + r.positiveCount, 0);
+        const negC = cs.reduce((s, r) => s + r.negativeCount, 0);
+        const avg  = sel > 0 ? (posS + negS) / sel : 0;
+        const pct  = totalSel > 0 ? (sel / totalSel) * 100 : 0;
+        const adp  = participantCount > 0 && cs.length > 0 ? (sel / (participantCount * cs.length)) * 100 : 0;
+        return { cat, sel, pct, avg, net: posS + negS, posC, negC, adp, color: CATCOLORS[cat] || "#64748b" };
+      })
+      .sort((a, b) => b.sel - a.sel);
 
     const countRowsLocal = [...rows].sort((a, b) => (b.positiveCount - b.negativeCount) - (a.positiveCount - a.negativeCount));
     const valueRowsLocal = [...rows].sort((a, b) => (b.positiveSum + Math.abs(b.negativeSum)) - (a.positiveSum + Math.abs(a.negativeSum)));
+    const topCategory = catBreakdown[0];
+    const topMotivator = [...rows].sort((a, b) => b.timesSelected - a.timesSelected)[0];
+    const topMotivatorCopy = topMotivator ? getMotivatorText(topMotivator.motivator, lang) : null;
+    const topCatName = topCategory ? (isFA ? (CATEGORY_FA[topCategory.cat] || topCategory.cat) : topCategory.cat) : "";
 
-    // neg-value | neg-bar (fills from center outward left) | name | pos-bar (fills from center outward right) | pos-value
-    const barRow = (label: string, posW: number, negW: number, posLabel: string, negLabel: string) => `
-      <tr>
-        <td style="width:40px;text-align:right;padding:3px 4px;font-size:11px;color:#ef4444;font-weight:800;white-space:nowrap">${negLabel}</td>
-        <td style="width:180px;padding:3px 2px">
-          <div style="height:10px;background:#fee2e2;border-radius:4px 0 0 4px;overflow:hidden;print-color-adjust:exact;-webkit-print-color-adjust:exact">
-            <div style="height:100%;width:${negW}%;background:#f87171;margin-left:auto;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>
+    const pc = `print-color-adjust:exact;-webkit-print-color-adjust:exact`;
+
+    const barRow = (label: string, adoptPct: number, posW: number, negW: number, posLabel: string, negLabel: string, idx: number) => {
+      const bg = idx % 2 === 1 ? "background:#f8fafc;" : "";
+      return `<tr style="${bg}">
+        <td style="width:44px;text-align:right;padding:4px 5px;font-size:11px;color:#ef4444;font-weight:800;white-space:nowrap;vertical-align:middle">${negLabel}</td>
+        <td style="width:36%;padding:4px 3px;vertical-align:middle">
+          <div style="height:9px;background:#fee2e2;border-radius:4px 0 0 4px;overflow:hidden;${pc}">
+            <div style="height:100%;width:${negW}%;background:#f87171;margin-left:auto;${pc}"></div>
           </div>
         </td>
-        <td style="width:140px;font-weight:700;font-size:11px;padding:3px 6px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</td>
-        <td style="width:180px;padding:3px 2px">
-          <div style="height:10px;background:#d1fae5;border-radius:0 4px 4px 0;overflow:hidden;print-color-adjust:exact;-webkit-print-color-adjust:exact">
-            <div style="height:100%;width:${posW}%;background:#34d399;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>
+        <td style="padding:4px 8px;text-align:center;vertical-align:middle">
+          <div style="font-weight:800;font-size:11px;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
+          <div style="font-size:9px;color:#94a3b8;font-weight:700;margin-top:1px">${adoptPct}%</div>
+        </td>
+        <td style="width:36%;padding:4px 3px;vertical-align:middle">
+          <div style="height:9px;background:#d1fae5;border-radius:0 4px 4px 0;overflow:hidden;${pc}">
+            <div style="height:100%;width:${posW}%;background:#34d399;${pc}"></div>
           </div>
         </td>
-        <td style="width:40px;text-align:left;padding:3px 4px;font-size:11px;color:#10b981;font-weight:800;white-space:nowrap">${posLabel}</td>
+        <td style="width:44px;text-align:left;padding:4px 5px;font-size:11px;color:#10b981;font-weight:800;white-space:nowrap;vertical-align:middle">${posLabel}</td>
       </tr>`;
+    };
 
-    const countTable = countRowsLocal.map((r) => {
+    const countTable = countRowsLocal.map((r, i) => {
       const copy = getMotivatorText(r.motivator, lang);
-      return barRow(copy.title, (r.positiveCount / maxC) * 100, (r.negativeCount / maxC) * 100, `+${r.positiveCount}`, `−${r.negativeCount}`);
+      const adp = participantCount > 0 ? Math.round((r.timesSelected / participantCount) * 100) : 0;
+      return barRow(copy.title, adp, (r.positiveCount / maxC) * 100, (r.negativeCount / maxC) * 100, `+${r.positiveCount}`, `−${r.negativeCount}`, i);
     }).join("");
 
-    const valueTable = valueRowsLocal.map((r) => {
+    const valueTable = valueRowsLocal.map((r, i) => {
       const copy = getMotivatorText(r.motivator, lang);
-      return barRow(copy.title, (r.positiveSum / maxV) * 100, (Math.abs(r.negativeSum) / maxV) * 100,
+      const adp = participantCount > 0 ? Math.round((r.timesSelected / participantCount) * 100) : 0;
+      return barRow(copy.title, adp, (r.positiveSum / maxV) * 100, (Math.abs(r.negativeSum) / maxV) * 100,
         r.positiveSum > 0 ? `+${r.positiveSum}` : "—",
-        r.negativeSum < 0 ? `${r.negativeSum}` : "—");
+        r.negativeSum < 0 ? `${r.negativeSum}` : "—", i);
     }).join("");
 
-    const section = (heading: string, table: string) => `
-      <h2 style="font-size:15px;font-weight:900;margin:28px 0 6px">${heading}</h2>
-      <table style="width:100%;border-collapse:collapse;table-layout:fixed">${table}</table>`;
+    const catRows = catBreakdown.map((c, i) => {
+      const bg = i % 2 === 1 ? "background:#f8fafc;" : "";
+      const name = isFA ? (CATEGORY_FA[c.cat] || c.cat) : c.cat;
+      const avgColor = c.avg > 0 ? "#059669" : c.avg < 0 ? "#ef4444" : "#94a3b8";
+      const netColor = c.net > 0 ? "#059669" : c.net < 0 ? "#ef4444" : "#94a3b8";
+      return `<tr style="${bg}">
+        <td style="padding:5px 6px;vertical-align:middle;white-space:nowrap">
+          <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c.color};margin-right:6px;vertical-align:middle;${pc}"></span>
+          <span style="font-size:11px;font-weight:800;color:#0f172a">${name}</span>
+        </td>
+        <td style="padding:5px 3px;vertical-align:middle;width:44%">
+          <div style="height:10px;background:#f1f5f9;border-radius:20px;overflow:hidden;${pc}">
+            <div style="height:100%;width:${c.pct}%;background:${c.color};border-radius:20px;${pc}"></div>
+          </div>
+        </td>
+        <td style="padding:5px 6px;font-size:11px;font-weight:900;color:#334155;text-align:right;white-space:nowrap;vertical-align:middle">${c.pct.toFixed(1)}%</td>
+        <td style="padding:5px 6px;font-size:10px;font-weight:700;color:#64748b;text-align:right;white-space:nowrap;vertical-align:middle">${Math.round(c.adp)}% adp</td>
+        <td style="padding:5px 6px;font-size:11px;font-weight:800;color:${avgColor};text-align:right;white-space:nowrap;vertical-align:middle">${c.avg >= 0 ? "+" : ""}${c.avg.toFixed(1)} avg</td>
+        <td style="padding:5px 6px;font-size:11px;font-weight:900;color:${netColor};text-align:right;white-space:nowrap;vertical-align:middle">${c.net > 0 ? "+" : ""}${c.net} net</td>
+      </tr>`;
+    }).join("");
+
+    const section = (heading: string, subtitle: string, body: string) => `
+      <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:18px 20px;margin-bottom:18px;break-inside:avoid">
+        <div style="font-size:14px;font-weight:900;color:#0f172a;margin-bottom:2px">${heading}</div>
+        <div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">${subtitle}</div>
+        ${body}
+      </div>`;
+
+    const statCard = (value: string, label: string) =>
+      `<div style="flex:1;background:white;border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;text-align:center">
+        <div style="font-size:20px;font-weight:900;color:#0f172a">${value}</div>
+        <div style="font-size:10px;color:#64748b;font-weight:700;margin-top:3px">${label}</div>
+      </div>`;
+
+    const legend = (items: { color: string; label: string }[]) =>
+      `<div style="display:flex;gap:14px;margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9">
+        ${items.map(it => `<span style="display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:#64748b">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${it.color};${pc}"></span>${it.label}</span>`).join("")}
+      </div>`;
 
     const html = `<!DOCTYPE html><html dir="${dir}"><head><meta charset="utf-8"><title>${title}</title>
-      <style>
-        body{font-family:sans-serif;padding:24px;color:#0f172a}
-        @media print{@page{margin:1cm}*{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
-      </style>
-      </head><body>
-      <h1 style="font-size:20px;font-weight:900;margin-bottom:2px">${title}</h1>
-      <p style="font-size:11px;color:#64748b;margin-bottom:8px">${new Date().toLocaleDateString(isFA ? "fa-IR" : "en-US")}</p>
-      ${section(isFA ? "تحلیل تعدادی" : "Number Analysis", countTable)}
-      ${section(isFA ? "تحلیل ارزشی" : "Value Analysis", valueTable)}
-      <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script>
-      </body></html>`;
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8fafc;color:#0f172a}
+  .page{max-width:800px;margin:0 auto;padding:28px 24px}
+  @media print{
+    @page{margin:1.2cm;size:A4}
+    body{background:white}
+    .page{padding:0;max-width:none}
+    *{${pc}}
+  }
+</style>
+</head><body><div class="page">
+
+  <!-- Header -->
+  <div style="background:#0f172a;border-radius:12px;padding:24px 28px;margin-bottom:20px;${pc}">
+    <div style="font-size:22px;font-weight:900;color:white;letter-spacing:-0.3px">${title}</div>
+    <div style="font-size:11px;color:#64748b;margin-top:6px">${dateStr}${filterSuffix ? ` &nbsp;·&nbsp; <span style="font-style:italic">${filterSuffix}</span>` : ""}</div>
+  </div>
+
+  <!-- Summary cards -->
+  <div style="display:flex;gap:12px;margin-bottom:18px">
+    ${statCard(String(participantCount), isFA ? "شرکت‌کننده" : "Participants")}
+    ${statCard(String(totalSel), isFA ? "کل انتخاب‌ها" : "Total Selections")}
+    ${topCatName ? statCard(topCatName, isFA ? "محبوب‌ترین دسته" : "Top Category") : ""}
+    ${topMotivatorCopy ? statCard(topMotivatorCopy.title, isFA ? "محبوب‌ترین انگیزاننده" : "Most Chosen") : ""}
+  </div>
+
+  <!-- Number Analysis -->
+  ${section(
+    isFA ? "تحلیل تعدادی" : "Number Analysis",
+    isFA ? "مرتب‌سازی: تعداد مثبت منهای تعداد منفی  ·  درصد زیر نام = نرخ کاربرد" : "sorted by positive count − negative count  ·  % below name = adoption rate",
+    `<table style="width:100%;border-collapse:collapse;table-layout:fixed">${countTable}</table>
+     ${legend([{ color: "#f87171", label: isFA ? "تعداد منفی" : "Negative count" }, { color: "#34d399", label: isFA ? "تعداد مثبت" : "Positive count" }])}`
+  )}
+
+  <!-- Value Analysis -->
+  ${section(
+    isFA ? "تحلیل ارزشی" : "Value Analysis",
+    isFA ? "مرتب‌سازی: مجموع مثبت + قدر مطلق مجموع منفی  ·  درصد زیر نام = نرخ کاربرد" : "sorted by positive sum + |negative sum|  ·  % below name = adoption rate",
+    `<table style="width:100%;border-collapse:collapse;table-layout:fixed">${valueTable}</table>
+     ${legend([{ color: "#f87171", label: isFA ? "مجموع منفی" : "Negative sum" }, { color: "#34d399", label: isFA ? "مجموع مثبت" : "Positive sum" }])}`
+  )}
+
+  <!-- Category Breakdown -->
+  ${section(
+    isFA ? "تفکیک دسته‌ها" : "Category Breakdown",
+    isFA ? "مرتب‌سازی: سهم از کل انتخاب‌ها" : "sorted by share of all motivator selections",
+    `<table style="width:100%;border-collapse:collapse">${catRows}</table>
+     <div style="margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9;font-size:9px;color:#94a3b8;font-weight:700">
+       ${totalSel} ${isFA ? "کل انتخاب‌ها" : "total selections"} · ${participantCount} ${isFA ? "شرکت‌کننده" : "participants"}
+     </div>`
+  )}
+
+</div>
+<script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script>
+</body></html>`;
 
     const win = window.open("", "_blank");
     if (win) { win.document.write(html); win.document.close(); }
@@ -2507,7 +2625,7 @@ export default function App() {
                 <ChevronLeft size={16} />
                 {t.backToStart}
               </button>
-              <button type="button" onClick={() => exportTeamReportPDF(stats, selectedCompany, state.language, maxCount, maxValue, {
+              <button type="button" onClick={() => exportTeamReportPDF(stats, filtered.length, selectedCompany, state.language, maxCount, maxValue, {
                 dept: teamFilterDepartment !== "__all__" ? teamFilterDepartment : "",
                 sex: teamFilterSex !== "__all__" ? teamFilterSex : "",
                 seniority: teamFilterSeniority !== "__all__" ? teamFilterSeniority : "",
