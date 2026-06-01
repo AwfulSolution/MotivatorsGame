@@ -178,6 +178,8 @@ app.post("/api/admin/companies", requireAdmin, (req, res) => {
     res.status(400).json({ error: "name and facilitatorPassword required" });
     return;
   }
+  const existing = db.prepare("SELECT id FROM companies WHERE LOWER(name) = LOWER(?)").get(name.trim()) as any;
+  if (existing) { res.status(409).json({ error: "company_name_taken" }); return; }
   const id = crypto.randomUUID();
   const code = generateAccessCode();
   const now = new Date().toISOString();

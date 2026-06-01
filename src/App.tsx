@@ -288,6 +288,7 @@ const TEXT = {
     companies: "Companies",
     addCompany: "Add company",
     companyFacilitatorPw: "Facilitator password",
+    companyNameTaken: "A company with that name already exists.",
     noCompanies: "No companies yet. Add one below.",
     copyLink: "Copy link",
     copied: "Copied!",
@@ -446,6 +447,7 @@ const TEXT = {
     companies: "شرکت‌ها",
     addCompany: "افزودن شرکت",
     companyFacilitatorPw: "رمز عبور تسهیل‌گر",
+    companyNameTaken: "شرکتی با این نام از قبل وجود دارد.",
     noCompanies: "هنوز شرکتی اضافه نشده.",
     copyLink: "کپی لینک",
     copied: "کپی شد!",
@@ -1130,8 +1132,8 @@ export default function App() {
       const company = await api.createCompany(newCompanyName.trim(), newCompanyPassword);
       setCompanies((prev) => [company, ...prev]);
       setNewCompanyName(""); setNewCompanyPassword("");
-    } catch {
-      setCompanyFormError("Failed to create company.");
+    } catch (err: any) {
+      setCompanyFormError(err?.message === "company_name_taken" ? t.companyNameTaken : "Failed to create company.");
     }
   };
 
