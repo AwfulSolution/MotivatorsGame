@@ -342,6 +342,16 @@ const TEXT = {
     allSeniority: "All",
     allDepartments: "All departments",
     allDecades: "All decades",
+    numberAnalysis: "Number Analysis",
+    valueAnalysis: "Value Analysis",
+    categoryAnalysis: "Category Breakdown",
+    adoptionRate: "Adoption",
+    ofParticipants: "of participants",
+    avgScore: "Avg. score",
+    totalSelectionsLabel: "total selections",
+    sortedByAdoption: "Sorted by: share of all motivator selections",
+    sortedByNetCount: "Sorted by: positive count − negative count",
+    sortedByValue: "Sorted by: positive sum + |negative sum|",
   },
   fa: {
     languageName: "English",
@@ -503,6 +513,16 @@ const TEXT = {
     allSeniority: "همه",
     allDepartments: "همه دپارتمان‌ها",
     allDecades: "همه دهه‌ها",
+    numberAnalysis: "تحلیل تعدادی",
+    valueAnalysis: "تحلیل ارزشی",
+    categoryAnalysis: "تفکیک دسته‌ها",
+    adoptionRate: "کاربرد",
+    ofParticipants: "از شرکت‌کنندگان",
+    avgScore: "میانگین امتیاز",
+    totalSelectionsLabel: "کل انتخاب‌ها",
+    sortedByAdoption: "مرتب‌سازی: سهم از کل انتخاب‌های انگیزاننده",
+    sortedByNetCount: "مرتب‌سازی: تعداد مثبت منهای تعداد منفی",
+    sortedByValue: "مرتب‌سازی: مجموع مثبت + قدر مطلق مجموع منفی",
   },
 } as const;
 
@@ -717,7 +737,7 @@ export default function App() {
   });
   const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string>("__all__");
-  const [teamReportTab, setTeamReportTab] = useState<"count" | "value">("count");
+  const [teamReportTab, setTeamReportTab] = useState<"count" | "value" | "category">("count");
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ participantName: "", participantPosition: "", companyName: "", companyId: "" });
   const [playHistory, setPlayHistory] = useState<Array<Pick<GameState, "activeCards" | "discardedCards" | "currentIndex" | "newestCardId" | "stage">>>([]);
@@ -1276,6 +1296,23 @@ export default function App() {
     const countRowsSorted = [...rows].sort((a, b) => (b.positiveCount - b.negativeCount) - (a.positiveCount - a.negativeCount));
     const valueRowsSorted = [...rows].sort((a, b) => (b.positiveSum + Math.abs(b.negativeSum)) - (a.positiveSum + Math.abs(a.negativeSum)));
 
+    const totalSelectionsExcel = rows.reduce((sum, r) => sum + r.timesSelected, 0);
+    const categoryBreakdownExcel = [...new Set(rows.map((r) => r.motivator.category))]
+      .map((cat) => {
+        const catStats = rows.filter((r) => r.motivator.category === cat);
+        const selected = catStats.reduce((sum, r) => sum + r.timesSelected, 0);
+        const posSum   = catStats.reduce((sum, r) => sum + r.positiveSum, 0);
+        const negSum   = catStats.reduce((sum, r) => sum + r.negativeSum, 0);
+        const posCount = catStats.reduce((sum, r) => sum + r.positiveCount, 0);
+        const negCount = catStats.reduce((sum, r) => sum + r.negativeCount, 0);
+        const avgScore = selected > 0 ? (posSum + negSum) / selected : 0;
+        const pct      = totalSelectionsExcel > 0 ? (selected / totalSelectionsExcel) * 100 : 0;
+        const adoptionPct = participants.length > 0 && catStats.length > 0
+          ? (selected / (participants.length * catStats.length)) * 100 : 0;
+        return { category: cat, selected, pct, posSum, negSum, posCount, negCount, avgScore, netScore: posSum + negSum, adoptionPct };
+      })
+      .sort((a, b) => b.selected - a.selected);
+
     const wb = new ExcelJS.Workbook();
     wb.creator = "HR Motivator Game";
     wb.created = new Date();
@@ -1290,17 +1327,18 @@ export default function App() {
       const maxPos = Math.max(...sheetRows.map(r => mode === "count" ? r.positiveCount : r.positiveSum), 1);
 
       ws.columns = [
-        { key: "rank",     width: 5  },
-        { key: "negval",   width: 10 },
-        { key: "negbar",   width: 18 },
-        { key: "name",     width: 30 },
-        { key: "posbar",   width: 18 },
-        { key: "posval",   width: 10 },
-        { key: "extra",    width: 12 },
+        { key: "rank",      width: 5  },
+        { key: "negval",    width: 10 },
+        { key: "negbar",    width: 18 },
+        { key: "name",      width: 30 },
+        { key: "posbar",    width: 18 },
+        { key: "posval",    width: 10 },
+        { key: "extra",     width: 12 },
+        { key: "adoption",  width: 12 },
       ];
 
       // ── Title row ────────────────────────────────────────────────────
-      ws.mergeCells("A1:G1");
+      ws.mergeCells("A1:H1");
       const titleCell = ws.getCell("A1");
       titleCell.value = reportTitle;
       titleCell.font = { bold: true, size: 14, color: { argb: "FF0F172A" } };
@@ -1312,7 +1350,7 @@ export default function App() {
       ws.getCell("A2").value = dateStr;
       ws.getCell("A2").font = { size: 10, color: { argb: "FF64748B" } };
       if (filterSuffix) {
-        ws.mergeCells("D2:G2");
+        ws.mergeCells("D2:H2");
         ws.getCell("D2").value = (isFA ? "فیلترها: " : "Filters: ") + filterSuffix;
         ws.getCell("D2").font = { size: 10, italic: true, color: { argb: "FF64748B" } };
       }
@@ -1320,9 +1358,10 @@ export default function App() {
       ws.addRow([]); // spacer
 
       // ── Column headers ────────────────────────────────────────────────
-      const negLabel  = mode === "count" ? (isFA ? "← تعداد منفی" : "Neg Count →") : (isFA ? "← مجموع منفی" : "Neg Sum →");
-      const posLabel  = mode === "count" ? (isFA ? "← تعداد مثبت" : "← Pos Count") : (isFA ? "← مجموع مثبت" : "← Pos Sum");
+      const negLabel   = mode === "count" ? (isFA ? "← تعداد منفی" : "Neg Count →") : (isFA ? "← مجموع منفی" : "Neg Sum →");
+      const posLabel   = mode === "count" ? (isFA ? "← تعداد مثبت" : "← Pos Count") : (isFA ? "← مجموع مثبت" : "← Pos Sum");
       const extraLabel = mode === "count" ? (isFA ? "انتخاب شده" : "Selected") : (isFA ? "خالص" : "Net Score");
+      const adoptLabel = isFA ? "% کاربرد" : "% Adoption";
       const hdr = ws.addRow([
         "#",
         negLabel,
@@ -1331,6 +1370,7 @@ export default function App() {
         "",
         posLabel,
         extraLabel,
+        adoptLabel,
       ]);
       hdr.eachCell((cell) => {
         cell.font = { bold: true, size: 10, color: { argb: "FF475569" } };
@@ -1355,8 +1395,9 @@ export default function App() {
 
         const negLabel  = negRaw < 0 ? `${negRaw}` : negRaw > 0 ? `-${negRaw}` : "—";
         const posLabelV = posRaw > 0 ? `+${posRaw}` : "—";
+        const adoptPct  = participants.length > 0 ? `${Math.round((r.timesSelected / participants.length) * 100)}%` : "—";
 
-        const dr = ws.addRow([i + 1, negLabel, negBarStr, copy.title, posBarStr, posLabelV, extraVal]);
+        const dr = ws.addRow([i + 1, negLabel, negBarStr, copy.title, posBarStr, posLabelV, extraVal, adoptPct]);
 
         const zebra = i % 2 === 1;
         const zebraFill: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFAFAFA" } };
@@ -1397,6 +1438,11 @@ export default function App() {
         dr.getCell(7).alignment = { horizontal: "center" };
         if (zebra) dr.getCell(7).fill = zebraFill;
 
+        // Adoption %
+        dr.getCell(8).font = { size: 10, color: { argb: "FF475569" } };
+        dr.getCell(8).alignment = { horizontal: "center" };
+        if (zebra) dr.getCell(8).fill = zebraFill;
+
         dr.height = 18;
         dr.commit();
       });
@@ -1404,6 +1450,116 @@ export default function App() {
 
     addSheet(isFA ? "تحلیل تعدادی" : "Count Analysis", countRowsSorted, "count");
     addSheet(isFA ? "تحلیل ارزشی"  : "Value Analysis",  valueRowsSorted,  "value");
+
+    // ── Category Breakdown sheet ───────────────────────────────────────────────
+    {
+      const ws = wb.addWorksheet(isFA ? "تفکیک دسته‌ها" : "Category Breakdown");
+
+      ws.columns = [
+        { key: "cat",      width: 22 },
+        { key: "n",        width: 8  },
+        { key: "bar",      width: 20 },
+        { key: "pct",      width: 10 },
+        { key: "adopt",    width: 14 },
+        { key: "avg",      width: 14 },
+        { key: "net",      width: 12 },
+        { key: "pos",      width: 10 },
+        { key: "neg",      width: 10 },
+      ];
+
+      ws.mergeCells("A1:I1");
+      const tCell = ws.getCell("A1");
+      tCell.value = reportTitle;
+      tCell.font = { bold: true, size: 14, color: { argb: "FF0F172A" } };
+      tCell.alignment = { horizontal: "left", vertical: "middle" };
+      ws.getRow(1).height = 26;
+
+      ws.mergeCells("A2:D2");
+      ws.getCell("A2").value = dateStr;
+      ws.getCell("A2").font = { size: 10, color: { argb: "FF64748B" } };
+      if (filterSuffix) {
+        ws.mergeCells("E2:I2");
+        ws.getCell("E2").value = (isFA ? "فیلترها: " : "Filters: ") + filterSuffix;
+        ws.getCell("E2").font = { size: 10, italic: true, color: { argb: "FF64748B" } };
+      }
+      ws.addRow([]);
+
+      const catHdr = ws.addRow([
+        isFA ? "دسته" : "Category",
+        isFA ? "تعداد" : "Selections",
+        "",
+        isFA ? "% از کل" : "% of Total",
+        isFA ? "% کاربرد" : "% Adoption",
+        isFA ? "میانگین امتیاز" : "Avg. Score",
+        isFA ? "خالص" : "Net Score",
+        isFA ? "مثبت" : "Positive",
+        isFA ? "منفی" : "Negative",
+      ]);
+      catHdr.eachCell((cell) => {
+        cell.font = { bold: true, size: 10, color: { argb: "FF475569" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
+        cell.border = { bottom: { style: "thin", color: { argb: "FFE2E8F0" } } };
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+      });
+      catHdr.height = 20;
+
+      categoryBreakdownExcel.forEach((c, i) => {
+        const catName = isFA ? (CATEGORY_FA[c.category] || c.category) : c.category;
+        const barWidth = Math.round((c.pct / 100) * 18);
+        const barStr = "█".repeat(barWidth) + "░".repeat(18 - barWidth);
+        const avgStr = `${c.avgScore >= 0 ? "+" : ""}${c.avgScore.toFixed(1)}`;
+        const netStr = `${c.netScore > 0 ? "+" : ""}${c.netScore}`;
+        const zebra = i % 2 === 1;
+        const zebraFill: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFAFAFA" } };
+
+        const dr = ws.addRow([catName, c.selected, barStr, `${c.pct.toFixed(1)}%`, `${c.adoptionPct.toFixed(0)}%`, avgStr, netStr, c.posCount, c.negCount]);
+
+        dr.getCell(1).font = { bold: true, size: 11 };
+        if (zebra) dr.getCell(1).fill = zebraFill;
+
+        dr.getCell(2).font = { size: 10, color: { argb: "FF475569" } };
+        dr.getCell(2).alignment = { horizontal: "center" };
+        if (zebra) dr.getCell(2).fill = zebraFill;
+
+        dr.getCell(3).font = { name: "Courier New", size: 9, color: { argb: "FF6366F1" } };
+        dr.getCell(3).alignment = { horizontal: "left" };
+        if (zebra) dr.getCell(3).fill = zebraFill;
+
+        dr.getCell(4).font = { bold: true, size: 10, color: { argb: "FF334155" } };
+        dr.getCell(4).alignment = { horizontal: "center" };
+        if (zebra) dr.getCell(4).fill = zebraFill;
+
+        dr.getCell(5).font = { size: 10, color: { argb: "FF475569" } };
+        dr.getCell(5).alignment = { horizontal: "center" };
+        if (zebra) dr.getCell(5).fill = zebraFill;
+
+        const avgColor = c.avgScore > 0 ? "FF059669" : c.avgScore < 0 ? "FFEF4444" : "FF94A3B8";
+        dr.getCell(6).font = { bold: true, size: 10, color: { argb: avgColor } };
+        dr.getCell(6).alignment = { horizontal: "center" };
+        if (zebra) dr.getCell(6).fill = zebraFill;
+
+        const netColor = c.netScore > 0 ? "FF059669" : c.netScore < 0 ? "FFEF4444" : "FF94A3B8";
+        dr.getCell(7).font = { bold: true, size: 10, color: { argb: netColor } };
+        dr.getCell(7).alignment = { horizontal: "center" };
+        if (zebra) dr.getCell(7).fill = zebraFill;
+
+        dr.getCell(8).font = { bold: true, size: 10, color: { argb: "FF059669" } };
+        dr.getCell(8).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FDF4" } };
+        dr.getCell(8).alignment = { horizontal: "center" };
+
+        dr.getCell(9).font = { bold: true, size: 10, color: { argb: "FFEF4444" } };
+        dr.getCell(9).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF2F2" } };
+        dr.getCell(9).alignment = { horizontal: "center" };
+
+        dr.height = 18;
+        dr.commit();
+      });
+
+      // Footer
+      const footerRow = ws.addRow([isFA ? `${totalSelectionsExcel} کل انتخاب‌ها · ${participants.length} شرکت‌کننده` : `${totalSelectionsExcel} total selections · ${participants.length} participants`]);
+      ws.mergeCells(`A${footerRow.number}:I${footerRow.number}`);
+      footerRow.getCell(1).font = { size: 9, italic: true, color: { argb: "FF94A3B8" } };
+    }
 
     // ── Participants sheet ─────────────────────────────────────────────────────
     {
@@ -2315,9 +2471,25 @@ export default function App() {
     const valueRows = [...stats].sort((a, b) => (b.positiveSum + Math.abs(b.negativeSum)) - (a.positiveSum + Math.abs(a.negativeSum)));
     const maxValue = Math.max(...valueRows.map((r) => r.positiveSum + Math.abs(r.negativeSum)), 1);
 
+    // Page 3: category breakdown
+    const totalSelections = stats.reduce((sum, s) => sum + s.timesSelected, 0);
+    const categoryBreakdown = [...new Set(MOTIVATORS.map((m) => m.category))]
+      .map((cat) => {
+        const catStats = stats.filter((s) => s.motivator.category === cat);
+        const selected  = catStats.reduce((sum, s) => sum + s.timesSelected, 0);
+        const posSum    = catStats.reduce((sum, s) => sum + s.positiveSum, 0);
+        const negSum    = catStats.reduce((sum, s) => sum + s.negativeSum, 0);
+        const posCount  = catStats.reduce((sum, s) => sum + s.positiveCount, 0);
+        const negCount  = catStats.reduce((sum, s) => sum + s.negativeCount, 0);
+        const avgScore  = selected > 0 ? (posSum + negSum) / selected : 0;
+        return { category: cat, selected, pct: totalSelections > 0 ? (selected / totalSelections) * 100 : 0, posSum, negSum, posCount, negCount, avgScore, netScore: posSum + negSum };
+      })
+      .sort((a, b) => b.selected - a.selected);
+
     const tabs = [
-      { key: "count", label: state.language === "fa" ? "تحلیل تعدادی" : "Number Analysis" },
-      { key: "value", label: state.language === "fa" ? "تحلیل ارزشی" : "Value Analysis" },
+      { key: "count",    label: t.numberAnalysis },
+      { key: "value",    label: t.valueAnalysis },
+      { key: "category", label: t.categoryAnalysis },
     ] as const;
     type Tab = typeof tabs[number]["key"];
 
@@ -2446,24 +2618,24 @@ export default function App() {
               {/* Page 1: Number Analysis */}
               {teamReportTab === "count" && (
                 <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-                  <p className="mb-4 text-xs font-bold text-slate-400">
-                    {state.language === "fa"
-                      ? "\u0645\u0631\u062a\u0628\u200c\u0633\u0627\u0632\u06cc \u0628\u0631 \u0627\u0633\u0627\u0633: \u062a\u0639\u062f\u0627\u062f \u0645\u062b\u0628\u062a \u0645\u0646\u0647\u0627\u06cc \u062a\u0639\u062f\u0627\u062f \u0645\u0646\u0641\u06cc"
-                      : "Sorted by: positive count \u2212 negative count"}
-                  </p>
-                  {countRows.map(({ motivator, positiveCount, negativeCount }) => {
+                  <p className="mb-4 text-xs font-bold text-slate-400">{t.sortedByNetCount}</p>
+                  {countRows.map(({ motivator, positiveCount, negativeCount, timesSelected }) => {
                     const copy = getMotivatorText(motivator, state.language);
                     const posW = (positiveCount / maxCount) * 100;
                     const negW = (negativeCount / maxCount) * 100;
+                    const adoptionPct = filtered.length > 0 ? Math.round((timesSelected / filtered.length) * 100) : 0;
                     return (
-                      <div key={motivator.id} className="grid grid-cols-[1fr_160px_1fr] items-center gap-2">
+                      <div key={motivator.id} className="grid grid-cols-[1fr_180px_1fr] items-center gap-2">
                         <div className="flex items-center justify-end gap-2">
                           <span className="w-6 text-end text-xs font-black text-red-500">−{negativeCount}</span>
                           <div className="h-4 w-full overflow-hidden rounded-l-full bg-slate-100">
                             <div className="ml-auto h-full rounded-l-full bg-red-400 transition-all" style={{ width: `${negW}%` }} />
                           </div>
                         </div>
-                        <span className="truncate text-center text-sm font-bold text-slate-800" title={copy.title}>{copy.title}</span>
+                        <div className="flex flex-col items-center gap-0.5 px-1">
+                          <span className="w-full truncate text-center text-sm font-bold text-slate-800" title={copy.title}>{copy.title}</span>
+                          <span className="text-[10px] font-bold text-slate-400">{adoptionPct}% {t.adoptionRate.toLowerCase()}</span>
+                        </div>
                         <div className="flex items-center gap-2">
                           <div className="h-4 w-full overflow-hidden rounded-r-full bg-slate-100">
                             <div className="h-full rounded-r-full bg-emerald-500 transition-all" style={{ width: `${posW}%` }} />
@@ -2473,9 +2645,11 @@ export default function App() {
                       </div>
                     );
                   })}
-                  <div className="mt-4 flex items-center gap-4 border-t border-slate-100 pt-4 text-xs font-bold text-slate-500">
-                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-red-400" />{state.language === "fa" ? "\u062a\u0639\u062f\u0627\u062f \u0645\u0646\u0641\u06cc" : "Negative count"}</span>
-                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-emerald-500" />{state.language === "fa" ? "\u062a\u0639\u062f\u0627\u062f \u0645\u062b\u0628\u062a" : "Positive count"}</span>
+                  <div className="mt-4 flex flex-wrap items-center gap-4 border-t border-slate-100 pt-4 text-xs font-bold text-slate-500">
+                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-red-400" />{state.language === "fa" ? "تعداد منفی" : "Negative count"}</span>
+                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-emerald-500" />{state.language === "fa" ? "تعداد مثبت" : "Positive count"}</span>
+                    <span className="text-slate-300">·</span>
+                    <span className="text-slate-400">{totalSelections} {t.totalSelectionsLabel} / {filtered.length} {t.participants}</span>
                   </div>
                 </div>
               )}
@@ -2483,37 +2657,86 @@ export default function App() {
               {/* Page 2: Value Analysis */}
               {teamReportTab === "value" && (
                 <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-                  <p className="mb-4 text-xs font-bold text-slate-400">
-                    {state.language === "fa"
-                      ? "\u0645\u0631\u062a\u0628\u200c\u0633\u0627\u0632\u06cc \u0628\u0631 \u0627\u0633\u0627\u0633: \u0645\u062c\u0645\u0648\u0639 \u0645\u062b\u0628\u062a + \u0642\u062f\u0631 \u0645\u0637\u0644\u0642 \u0645\u062c\u0645\u0648\u0639 \u0645\u0646\u0641\u06cc"
-                      : "Sorted by: positive sum + |negative sum|"}
-                  </p>
-                  {valueRows.map(({ motivator, positiveSum, negativeSum }) => {
+                  <p className="mb-4 text-xs font-bold text-slate-400">{t.sortedByValue}</p>
+                  {valueRows.map(({ motivator, positiveSum, negativeSum, timesSelected }) => {
                     const copy = getMotivatorText(motivator, state.language);
                     const absNeg = Math.abs(negativeSum);
                     const posW = (positiveSum / maxValue) * 100;
                     const negW = (absNeg / maxValue) * 100;
+                    const adoptionPct = filtered.length > 0 ? Math.round((timesSelected / filtered.length) * 100) : 0;
                     return (
-                      <div key={motivator.id} className="grid grid-cols-[1fr_160px_1fr] items-center gap-2">
+                      <div key={motivator.id} className="grid grid-cols-[1fr_180px_1fr] items-center gap-2">
                         <div className="flex items-center justify-end gap-2">
-                          <span className="w-8 text-end text-xs font-black text-red-500">{negativeSum < 0 ? negativeSum : "\u2014"}</span>
+                          <span className="w-8 text-end text-xs font-black text-red-500">{negativeSum < 0 ? negativeSum : "—"}</span>
                           <div className="h-4 w-full overflow-hidden rounded-l-full bg-slate-100">
                             <div className="ml-auto h-full rounded-l-full bg-red-400 transition-all" style={{ width: `${negW}%` }} />
                           </div>
                         </div>
-                        <span className="truncate text-center text-sm font-bold text-slate-800" title={copy.title}>{copy.title}</span>
+                        <div className="flex flex-col items-center gap-0.5 px-1">
+                          <span className="w-full truncate text-center text-sm font-bold text-slate-800" title={copy.title}>{copy.title}</span>
+                          <span className="text-[10px] font-bold text-slate-400">{adoptionPct}% {t.adoptionRate.toLowerCase()}</span>
+                        </div>
                         <div className="flex items-center gap-2">
                           <div className="h-4 w-full overflow-hidden rounded-r-full bg-slate-100">
                             <div className="h-full rounded-r-full bg-emerald-500 transition-all" style={{ width: `${posW}%` }} />
                           </div>
-                          <span className="w-8 text-xs font-black text-emerald-600">{positiveSum > 0 ? `+${positiveSum}` : "\u2014"}</span>
+                          <span className="w-8 text-xs font-black text-emerald-600">{positiveSum > 0 ? `+${positiveSum}` : "—"}</span>
                         </div>
                       </div>
                     );
                   })}
                   <div className="mt-4 flex items-center gap-4 border-t border-slate-100 pt-4 text-xs font-bold text-slate-500">
-                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-red-400" />{state.language === "fa" ? "\u0645\u062c\u0645\u0648\u0639 \u0645\u0646\u0641\u06cc" : "Negative sum"}</span>
-                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-emerald-500" />{state.language === "fa" ? "\u0645\u062c\u0645\u0648\u0639 \u0645\u062b\u0628\u062a" : "Positive sum"}</span>
+                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-red-400" />{state.language === "fa" ? "مجموع منفی" : "Negative sum"}</span>
+                    <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm bg-emerald-500" />{state.language === "fa" ? "مجموع مثبت" : "Positive sum"}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Page 3: Category Breakdown */}
+              {teamReportTab === "category" && (
+                <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+                  <p className="text-xs font-bold text-slate-400">{t.sortedByAdoption}</p>
+                  {categoryBreakdown.map(({ category, selected, pct, posCount, negCount, avgScore, netScore }) => {
+                    const colors = CATEGORY_COLORS[category] || { bg: "bg-slate-600", text: "text-slate-600", light: "bg-slate-50" };
+                    const catName = state.language === "fa" ? (CATEGORY_FA[category] || category) : category;
+                    const catMotivatorCount = MOTIVATORS.filter((m) => m.category === category).length;
+                    const adoptionPct = filtered.length > 0 && catMotivatorCount > 0
+                      ? Math.round((selected / (filtered.length * catMotivatorCount)) * 100)
+                      : 0;
+                    return (
+                      <div key={category} className="space-y-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`h-2.5 w-2.5 flex-none rounded-full ${colors.bg}`} />
+                            <span className="truncate text-sm font-bold text-slate-800">{catName}</span>
+                            <span className="text-xs font-medium text-slate-400">({catMotivatorCount} {state.language === "fa" ? "انگیزاننده" : "motivators"})</span>
+                          </div>
+                          <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-1 text-xs font-bold">
+                            <span className="text-slate-400">{selected} {t.timesSelected.toLowerCase()}</span>
+                            <span className="text-slate-500">{adoptionPct}% {t.adoptionRate.toLowerCase()}</span>
+                            <span className={avgScore > 0 ? "text-emerald-600" : avgScore < 0 ? "text-red-500" : "text-slate-400"}>
+                              {t.avgScore}: {avgScore >= 0 ? "+" : ""}{avgScore.toFixed(1)}
+                            </span>
+                            <span className={`font-black ${netScore > 0 ? "text-emerald-600" : netScore < 0 ? "text-red-500" : "text-slate-400"}`}>
+                              {t.netScore}: {netScore > 0 ? "+" : ""}{netScore}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="h-5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                            <div className={`h-full rounded-full transition-all opacity-80 ${colors.bg}`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="w-12 text-right text-xs font-black text-slate-600">{pct.toFixed(1)}%</span>
+                        </div>
+                        <div className="flex gap-3 text-[10px] font-bold text-slate-400">
+                          <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm bg-emerald-400" />{state.language === "fa" ? "مثبت" : "Positive"}: {posCount}</span>
+                          <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm bg-red-400" />{state.language === "fa" ? "منفی" : "Negative"}: {negCount}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="mt-2 border-t border-slate-100 pt-4 text-xs font-bold text-slate-400">
+                    {totalSelections} {t.totalSelectionsLabel} · {filtered.length} {t.participants}
                   </div>
                 </div>
               )}
