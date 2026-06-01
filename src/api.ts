@@ -82,15 +82,22 @@ export async function signOut(): Promise<void> {
 
 // ── Companies ─────────────────────────────────────────────────────────────────
 
+export interface Department {
+  name: string;
+  limit?: number | null;
+}
+
 export interface Company {
   id: string;
   name: string;
   accessCode: string;
   createdAt: string;
   reportCount: number;
+  departments: Department[];
+  testLimit: number | null;
 }
 
-export async function resolveCompanyCode(code: string): Promise<{ id: string; name: string; code: string } | null> {
+export async function resolveCompanyCode(code: string): Promise<{ id: string; name: string; code: string; departments: Department[] } | null> {
   try {
     return await api("GET", `/api/companies/resolve?code=${encodeURIComponent(code)}`);
   } catch {
@@ -108,6 +115,14 @@ export async function createCompany(name: string, facilitatorPassword: string): 
 
 export async function updateCompanyFacilitatorPassword(id: string, newPassword: string): Promise<void> {
   await api("PATCH", `/api/admin/companies/${id}/password`, { newPassword });
+}
+
+export async function updateCompanySettings(
+  id: string,
+  departments: Department[],
+  testLimit: number | null
+): Promise<void> {
+  await api("PATCH", `/api/admin/companies/${id}/settings`, { departments, testLimit });
 }
 
 export async function resetCompanyCode(id: string): Promise<string> {
@@ -132,6 +147,10 @@ export interface SavedReportDTO {
   activeCards: unknown[];
   scores: Record<string, number>;
   companyId?: string | null;
+  yearOfBirth?: number | null;
+  sex?: string | null;
+  seniority?: string | null;
+  department?: string | null;
 }
 
 export async function fetchReports(): Promise<SavedReportDTO[]> {

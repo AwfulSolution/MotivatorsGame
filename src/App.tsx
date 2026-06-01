@@ -58,6 +58,10 @@ interface GameState {
   language: Language;
   currentReportId: string | null;
   companyId: string | null;
+  yearOfBirth: number | null;
+  sex: string;
+  seniority: string;
+  department: string;
 }
 
 interface SavedReport {
@@ -71,7 +75,28 @@ interface SavedReport {
   activeCards: Motivator[];
   scores: Record<string, number>;
   companyId?: string | null;
+  yearOfBirth?: number | null;
+  sex?: string | null;
+  seniority?: string | null;
+  department?: string | null;
 }
+
+const SEX_OPTIONS = [
+  { value: "male", labelEn: "Male", labelFa: "مرد" },
+  { value: "female", labelEn: "Female", labelFa: "زن" },
+  { value: "prefer_not", labelEn: "Prefer not to say", labelFa: "ترجیح می‌دهم نگویم" },
+] as const;
+
+const SENIORITY_OPTIONS = [
+  { value: "junior", labelEn: "Junior", labelFa: "جونیور" },
+  { value: "mid", labelEn: "Mid-Level", labelFa: "میانی" },
+  { value: "senior", labelEn: "Senior", labelFa: "ارشد" },
+  { value: "lead", labelEn: "Lead", labelFa: "سرپرست" },
+  { value: "manager", labelEn: "Manager", labelFa: "مدیر" },
+  { value: "director", labelEn: "Director or Executive", labelFa: "مدیر ارشد" },
+] as const;
+
+const BIRTH_YEARS = Array.from({ length: 2005 - 1950 + 1 }, (_, i) => 1950 + i).reverse();
 
 const STORAGE_KEY = "hr_motivator_game_simple";
 const SCORE_OPTIONS = [-3, -2, -1, 0, 1, 2, 3];
@@ -277,6 +302,42 @@ const TEXT = {
     facilitatorLoginError: "Wrong company code or password.",
     resetCode: "Reset code",
     viewingReportsFor: "Viewing reports for",
+    deleteCompany: "Delete",
+    yearOfBirth: "Year of birth",
+    sex: "Sex",
+    seniority: "Seniority level",
+    department: "Department",
+    selectYear: "Select year",
+    selectSex: "Select",
+    selectSeniority: "Select",
+    selectDepartment: "Select department",
+    sexMale: "Male",
+    sexFemale: "Female",
+    sexPreferNot: "Prefer not to say",
+    seniorityJunior: "Junior",
+    seniorityMid: "Mid-Level",
+    senioritySenior: "Senior",
+    seniorityLead: "Lead",
+    seniorityManager: "Manager",
+    seniorityDirector: "Director or Executive",
+    testLimit: "Test limit",
+    testLimitPlaceholder: "Unlimited",
+    departments: "Departments",
+    addDepartment: "Add department",
+    departmentName: "Department name",
+    departmentLimit: "Limit",
+    saveSettings: "Save Settings",
+    companySettings: "Settings",
+    limitReached: "This session could not be saved — the company's test limit has been reached.",
+    departmentLimitReached: "This session could not be saved — the department's test limit has been reached.",
+    filterBySex: "Filter by sex",
+    filterBySeniority: "Filter by seniority",
+    filterByDepartment: "Filter by department",
+    filterByBirthDecade: "Filter by birth decade",
+    allSex: "All",
+    allSeniority: "All",
+    allDepartments: "All departments",
+    allDecades: "All decades",
   },
   fa: {
     languageName: "English",
@@ -399,6 +460,42 @@ const TEXT = {
     facilitatorLoginError: "کد شرکت یا رمز عبور اشتباه است.",
     resetCode: "بازنشانی کد",
     viewingReportsFor: "نمایش گزارش‌های",
+    deleteCompany: "حذف",
+    yearOfBirth: "سال تولد",
+    sex: "جنسیت",
+    seniority: "سطح ارشدیت",
+    department: "دپارتمان",
+    selectYear: "انتخاب سال",
+    selectSex: "انتخاب",
+    selectSeniority: "انتخاب",
+    selectDepartment: "انتخاب دپارتمان",
+    sexMale: "مرد",
+    sexFemale: "زن",
+    sexPreferNot: "ترجیح می‌دهم نگویم",
+    seniorityJunior: "جونیور",
+    seniorityMid: "میانی",
+    senioritySenior: "ارشد",
+    seniorityLead: "سرپرست",
+    seniorityManager: "مدیر",
+    seniorityDirector: "مدیر ارشد",
+    testLimit: "محدودیت تست",
+    testLimitPlaceholder: "نامحدود",
+    departments: "دپارتمان‌ها",
+    addDepartment: "افزودن دپارتمان",
+    departmentName: "نام دپارتمان",
+    departmentLimit: "محدودیت",
+    saveSettings: "ذخیره تنظیمات",
+    companySettings: "تنظیمات",
+    limitReached: "این جلسه ذخیره نشد — سقف تست شرکت پر شده است.",
+    departmentLimitReached: "این جلسه ذخیره نشد — سقف تست دپارتمان پر شده است.",
+    filterBySex: "فیلتر بر اساس جنسیت",
+    filterBySeniority: "فیلتر بر اساس ارشدیت",
+    filterByDepartment: "فیلتر بر اساس دپارتمان",
+    filterByBirthDecade: "فیلتر بر اساس دهه تولد",
+    allSex: "همه",
+    allSeniority: "همه",
+    allDepartments: "همه دپارتمان‌ها",
+    allDecades: "همه دهه‌ها",
   },
 } as const;
 
@@ -595,6 +692,10 @@ export default function App() {
       language: "en",
       currentReportId: null,
       companyId: null,
+      yearOfBirth: null,
+      sex: "",
+      seniority: "",
+      department: "",
     };
 
     if (saved) {
@@ -632,8 +733,24 @@ export default function App() {
   const [pwSaved, setPwSaved] = useState(false);
   const [pwError, setPwError] = useState(false);
 
+  // Limit error state (results screen)
+  const [limitError, setLimitError] = useState<string | null>(null);
+
+  // Team report filters
+  const [teamFilterSex, setTeamFilterSex] = useState<string>("__all__");
+  const [teamFilterSeniority, setTeamFilterSeniority] = useState<string>("__all__");
+  const [teamFilterDepartment, setTeamFilterDepartment] = useState<string>("__all__");
+  const [teamFilterDecade, setTeamFilterDecade] = useState<string>("__all__");
+
+  // Company settings editing (admin panel)
+  const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
+  const [companySettingsForm, setCompanySettingsForm] = useState<{
+    testLimit: string;
+    departments: { name: string; limit: string }[];
+  }>({ testLimit: "", departments: [] });
+
   // Company code resolution (participant welcome screen)
-  const [resolvedCompany, setResolvedCompany] = useState<{ id: string; name: string; code: string } | null>(null);
+  const [resolvedCompany, setResolvedCompany] = useState<{ id: string; name: string; code: string; departments: { name: string; limit?: number | null }[] } | null>(null);
   const [codeInput, setCodeInput] = useState("");
   const [codeError, setCodeError] = useState(false);
   const [codeLoading, setCodeLoading] = useState(false);
@@ -683,6 +800,7 @@ export default function App() {
   // Persist report to server whenever results are shown
   useEffect(() => {
     if (state.stage !== "results" || !state.currentReportId || state.activeCards.length !== 6) return;
+    setLimitError(null);
     const now = new Date().toISOString();
     const existing = savedReports.find((r) => r.id === state.currentReportId);
     const report: SavedReport = {
@@ -696,9 +814,26 @@ export default function App() {
       activeCards: state.activeCards,
       scores: state.scores,
       companyId: state.companyId,
+      yearOfBirth: state.yearOfBirth,
+      sex: state.sex || null,
+      seniority: state.seniority || null,
+      department: state.department || null,
     };
-    api.upsertReport(report).catch(console.error);
-    setSavedReports((prev) => [report, ...prev.filter((r) => r.id !== report.id)]);
+    api.upsertReport(report).then(() => {
+      setSavedReports((prev) => [report, ...prev.filter((r) => r.id !== report.id)]);
+    }).catch((err: any) => {
+      if (err?.status === 403) {
+        const errCode = err?.message;
+        if (errCode === "department_limit_reached") {
+          setLimitError(TEXT[state.language].departmentLimitReached);
+        } else {
+          setLimitError(TEXT[state.language].limitReached);
+        }
+      } else {
+        setSavedReports((prev) => [report, ...prev.filter((r) => r.id !== report.id)]);
+        console.error(err);
+      }
+    });
   }, [
     state.activeCards,
     state.companyName,
@@ -708,6 +843,10 @@ export default function App() {
     state.participantPosition,
     state.scores,
     state.stage,
+    state.yearOfBirth,
+    state.sex,
+    state.seniority,
+    state.department,
   ]);
 
   const reportItems = useMemo(
@@ -764,6 +903,10 @@ export default function App() {
       scores: {},
       currentReportId: null,
       companyId: resolvedCompany?.id ?? null,
+      yearOfBirth: prev.yearOfBirth,
+      sex: prev.sex,
+      seniority: prev.seniority,
+      department: prev.department,
     }));
   };
 
@@ -843,6 +986,10 @@ export default function App() {
       language: prev.language,
       currentReportId: null,
       companyId: null,
+      yearOfBirth: null,
+      sex: "",
+      seniority: "",
+      department: "",
     }));
   };
 
@@ -871,6 +1018,10 @@ export default function App() {
       participantPosition: report.participantPosition,
       companyName: report.companyName,
       currentReportId: report.id,
+      yearOfBirth: report.yearOfBirth ?? null,
+      sex: report.sex ?? "",
+      seniority: report.seniority ?? "",
+      department: report.department ?? "",
     }));
   };
 
@@ -994,6 +1145,19 @@ export default function App() {
     setCompanies((prev) => prev.map((c) => c.id === id ? { ...c, accessCode: newCode } : c));
   };
 
+  const saveCompanySettings = async (companyId: string) => {
+    const departments = companySettingsForm.departments
+      .filter((d) => d.name.trim())
+      .map((d) => ({
+        name: d.name.trim(),
+        limit: d.limit.trim() ? parseInt(d.limit.trim(), 10) : null,
+      }));
+    const testLimit = companySettingsForm.testLimit.trim() ? parseInt(companySettingsForm.testLimit.trim(), 10) : null;
+    await api.updateCompanySettings(companyId, departments, testLimit);
+    setCompanies((prev) => prev.map((c) => c.id === companyId ? { ...c, departments, testLimit } : c));
+    setEditingCompanyId(null);
+  };
+
   const copyShareLink = (code: string) => {
     const url = `${window.location.origin}${window.location.pathname}?code=${code}`;
     navigator.clipboard.writeText(url).then(() => {
@@ -1017,8 +1181,10 @@ export default function App() {
     lang: Language,
     maxC: number,
     maxV: number,
+    activeFilters?: Record<string, string>,
   ) => {
-    const title = `Team Motivator Report${company !== "__all__" ? ` — ${company}` : ""}`;
+    const filterSuffix = activeFilters ? Object.values(activeFilters).filter(Boolean).join(", ") : "";
+    const title = `Team Motivator Report${company !== "__all__" ? ` — ${company}` : ""}${filterSuffix ? ` (${filterSuffix})` : ""}`;
     const isFA = lang === "fa";
     const dir = isFA ? "rtl" : "ltr";
 
@@ -1080,7 +1246,9 @@ export default function App() {
     rows: { motivator: Motivator; positiveCount: number; negativeCount: number; positiveSum: number; negativeSum: number; timesSelected: number }[],
     company: string,
     lang: Language,
+    activeFilters?: Record<string, string>,
   ) => {
+    const filterSuffix = activeFilters ? Object.values(activeFilters).filter(Boolean).join(", ") : "";
     const sheetData = rows.map((r) => {
       const copy = getMotivatorText(r.motivator, lang);
       return {
@@ -1097,13 +1265,18 @@ export default function App() {
     const ws = XLSX.utils.json_to_sheet(sheetData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Team Report");
-    XLSX.writeFile(wb, `Team Motivator Report${company !== "__all__" ? ` - ${company}` : ""}.xlsx`);
+    XLSX.writeFile(wb, `Team Motivator Report${company !== "__all__" ? ` - ${company}` : ""}${filterSuffix ? ` (${filterSuffix})` : ""}.xlsx`);
   };
 
+  const hasDepartments = resolvedCompany ? resolvedCompany.departments.length > 0 : false;
   const isReadyToStart = Boolean(
     state.participantName.trim() &&
     state.participantPosition.trim() &&
-    (resolvedCompany || state.companyName.trim())
+    (resolvedCompany || state.companyName.trim()) &&
+    state.yearOfBirth !== null &&
+    state.sex &&
+    state.seniority &&
+    (!hasDepartments || state.department)
   );
 
   // Login screen
@@ -1277,37 +1450,131 @@ export default function App() {
             ) : (
               <div className="divide-y divide-slate-100">
                 {companies.map((company) => (
-                  <div key={company.id} className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="font-black text-slate-950">{company.name}</p>
-                      <p className="mt-0.5 font-mono text-sm font-bold tracking-widest text-slate-400">{company.accessCode}</p>
-                      <p className="mt-0.5 text-xs font-bold text-slate-400">
-                        {company.reportCount} {t.reportsCount} · {new Date(company.createdAt).toLocaleDateString(isRtl ? "fa-IR" : "en-US")}
-                      </p>
+                  <div key={company.id} className="flex flex-col">
+                    <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-black text-slate-950">{company.name}</p>
+                        <p className="mt-0.5 font-mono text-sm font-bold tracking-widest text-slate-400">{company.accessCode}</p>
+                        <p className="mt-0.5 text-xs font-bold text-slate-400">
+                          {company.reportCount} {t.reportsCount} · {new Date(company.createdAt).toLocaleDateString(isRtl ? "fa-IR" : "en-US")}
+                          {company.testLimit !== null && company.testLimit !== undefined && ` · limit: ${company.testLimit}`}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => copyShareLink(company.accessCode)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 transition hover:bg-slate-50"
+                        >
+                          {copiedCode === company.accessCode ? t.copied : t.copyLink}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => resetCompanyCodeById(company.id)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 transition hover:bg-slate-50"
+                        >
+                          {t.resetCode}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editingCompanyId === company.id) {
+                              setEditingCompanyId(null);
+                            } else {
+                              setEditingCompanyId(company.id);
+                              setCompanySettingsForm({
+                                testLimit: company.testLimit !== null && company.testLimit !== undefined ? String(company.testLimit) : "",
+                                departments: (company.departments || []).map((d) => ({
+                                  name: d.name,
+                                  limit: d.limit !== null && d.limit !== undefined ? String(d.limit) : "",
+                                })),
+                              });
+                            }
+                          }}
+                          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-black transition ${editingCompanyId === company.id ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                        >
+                          {t.companySettings}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteCompanyById(company.id)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-red-500 transition hover:border-red-200 hover:bg-red-50"
+                        >
+                          <Trash2 size={14} />{t.deleteCompany}
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => copyShareLink(company.accessCode)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 transition hover:bg-slate-50"
-                      >
-                        {copiedCode === company.accessCode ? t.copied : t.copyLink}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => resetCompanyCodeById(company.id)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 transition hover:bg-slate-50"
-                      >
-                        {t.resetCode}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteCompanyById(company.id)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-red-500 transition hover:border-red-200 hover:bg-red-50"
-                      >
-                        <Trash2 size={14} />{t.deleteCompany}
-                      </button>
-                    </div>
+                    {/* Inline settings panel */}
+                    {editingCompanyId === company.id && (
+                      <div className="border-t border-slate-100 bg-slate-50 p-5 space-y-5">
+                        {/* Test limit */}
+                        <div>
+                          <label className="mb-2 block text-[11px] font-black uppercase tracking-widest text-slate-500">{t.testLimit}</label>
+                          <input
+                            type="number"
+                            min={1}
+                            placeholder={t.testLimitPlaceholder}
+                            value={companySettingsForm.testLimit}
+                            onChange={(e) => setCompanySettingsForm((f) => ({ ...f, testLimit: e.target.value }))}
+                            className="w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
+                          />
+                        </div>
+                        {/* Departments */}
+                        <div>
+                          <label className="mb-2 block text-[11px] font-black uppercase tracking-widest text-slate-500">{t.departments}</label>
+                          <div className="space-y-2">
+                            {companySettingsForm.departments.map((dept, idx) => (
+                              <div key={idx} className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  placeholder={t.departmentName}
+                                  value={dept.name}
+                                  onChange={(e) => setCompanySettingsForm((f) => {
+                                    const depts = [...f.departments];
+                                    depts[idx] = { ...depts[idx], name: e.target.value };
+                                    return { ...f, departments: depts };
+                                  })}
+                                  className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
+                                />
+                                <input
+                                  type="number"
+                                  min={1}
+                                  placeholder={t.departmentLimit}
+                                  value={dept.limit}
+                                  onChange={(e) => setCompanySettingsForm((f) => {
+                                    const depts = [...f.departments];
+                                    depts[idx] = { ...depts[idx], limit: e.target.value };
+                                    return { ...f, departments: depts };
+                                  })}
+                                  className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setCompanySettingsForm((f) => ({ ...f, departments: f.departments.filter((_, i) => i !== idx) }))}
+                                  className="rounded-lg border border-slate-200 p-2 text-slate-400 transition hover:border-red-200 hover:bg-red-50 hover:text-red-500"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => setCompanySettingsForm((f) => ({ ...f, departments: [...f.departments, { name: "", limit: "" }] }))}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-black text-slate-500 transition hover:border-slate-400 hover:text-slate-700"
+                            >
+                              + {t.addDepartment}
+                            </button>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => saveCompanySettings(company.id)}
+                          className="inline-flex items-center justify-center rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-black text-white transition hover:bg-slate-800"
+                        >
+                          {t.saveSettings}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1415,6 +1682,66 @@ export default function App() {
               />
             </label>
 
+            {/* Year of birth */}
+            <label className="block">
+              <span className="mb-2 block text-[11px] font-black uppercase tracking-widest text-slate-500">{t.yearOfBirth}</span>
+              <select
+                value={state.yearOfBirth ?? ""}
+                onChange={(e) => setState((prev) => ({ ...prev, yearOfBirth: e.target.value ? parseInt(e.target.value, 10) : null }))}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+              >
+                <option value="">{t.selectYear}</option>
+                {BIRTH_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </label>
+
+            {/* Sex */}
+            <label className="block">
+              <span className="mb-2 block text-[11px] font-black uppercase tracking-widest text-slate-500">{t.sex}</span>
+              <select
+                value={state.sex}
+                onChange={(e) => setState((prev) => ({ ...prev, sex: e.target.value }))}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+              >
+                <option value="">{t.selectSex}</option>
+                {SEX_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{state.language === "fa" ? o.labelFa : o.labelEn}</option>
+                ))}
+              </select>
+            </label>
+
+            {/* Seniority */}
+            <label className="block">
+              <span className="mb-2 block text-[11px] font-black uppercase tracking-widest text-slate-500">{t.seniority}</span>
+              <select
+                value={state.seniority}
+                onChange={(e) => setState((prev) => ({ ...prev, seniority: e.target.value }))}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+              >
+                <option value="">{t.selectSeniority}</option>
+                {SENIORITY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{state.language === "fa" ? o.labelFa : o.labelEn}</option>
+                ))}
+              </select>
+            </label>
+
+            {/* Department — only when resolved company has departments */}
+            {hasDepartments && (
+              <label className="block">
+                <span className="mb-2 block text-[11px] font-black uppercase tracking-widest text-slate-500">{t.department}</span>
+                <select
+                  value={state.department}
+                  onChange={(e) => setState((prev) => ({ ...prev, department: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-slate-800 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+                >
+                  <option value="">{t.selectDepartment}</option>
+                  {resolvedCompany!.departments.map((d) => (
+                    <option key={d.name} value={d.name}>{d.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+
             <button
               type="button"
               onClick={startGame}
@@ -1513,6 +1840,12 @@ export default function App() {
                         <p className="mt-1 text-sm font-bold text-slate-500">
                           {report.companyName} · {report.participantPosition}
                         </p>
+                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs font-bold text-slate-400">
+                          {report.yearOfBirth && <span>{report.yearOfBirth}</span>}
+                          {report.sex && <span>{SEX_OPTIONS.find((o) => o.value === report.sex)?.[state.language === "fa" ? "labelFa" : "labelEn"] ?? report.sex}</span>}
+                          {report.seniority && <span>{SENIORITY_OPTIONS.find((o) => o.value === report.seniority)?.[state.language === "fa" ? "labelFa" : "labelEn"] ?? report.seniority}</span>}
+                          {report.department && <span>{report.department}</span>}
+                        </div>
                       </div>
                       <div className={`rounded-lg bg-slate-50 px-3 py-2 text-xl font-black ${getScoreTextClass(reportAverage)}`}>
                         {reportAverage.toFixed(1)}
@@ -1616,9 +1949,39 @@ export default function App() {
     if (auth.role !== "facilitator" && auth.role !== "admin") { setState((prev) => ({ ...prev, stage: "welcome" })); return null; }
     const companies = Array.from(new Set(savedReports.map((r) => r.companyName).filter(Boolean))).sort();
 
-    const filtered = selectedCompany === "__all__"
+    const filteredByCompany = selectedCompany === "__all__"
       ? savedReports
       : savedReports.filter((r) => r.companyName === selectedCompany);
+
+    // Unique values for additional filters
+    const uniqueDepartments = Array.from(new Set(filteredByCompany.map((r) => r.department).filter(Boolean))).sort() as string[];
+    const uniqueSex = Array.from(new Set(filteredByCompany.map((r) => r.sex).filter(Boolean))).sort() as string[];
+    const uniqueSeniority = Array.from(new Set(filteredByCompany.map((r) => r.seniority).filter(Boolean))).sort() as string[];
+    const uniqueDecades = Array.from(new Set(
+      filteredByCompany
+        .map((r) => r.yearOfBirth ? Math.floor(r.yearOfBirth / 10) * 10 : null)
+        .filter((d): d is number => d !== null)
+    )).sort() as number[];
+
+    const getSexLabel = (val: string) => {
+      const o = SEX_OPTIONS.find((x) => x.value === val);
+      return o ? (state.language === "fa" ? o.labelFa : o.labelEn) : val;
+    };
+    const getSeniorityLabel = (val: string) => {
+      const o = SENIORITY_OPTIONS.find((x) => x.value === val);
+      return o ? (state.language === "fa" ? o.labelFa : o.labelEn) : val;
+    };
+
+    const filtered = filteredByCompany.filter((r) => {
+      if (teamFilterSex !== "__all__" && r.sex !== teamFilterSex) return false;
+      if (teamFilterSeniority !== "__all__" && r.seniority !== teamFilterSeniority) return false;
+      if (teamFilterDepartment !== "__all__" && r.department !== teamFilterDepartment) return false;
+      if (teamFilterDecade !== "__all__") {
+        const decade = r.yearOfBirth ? Math.floor(r.yearOfBirth / 10) * 10 : null;
+        if (decade === null || String(decade) !== teamFilterDecade) return false;
+      }
+      return true;
+    });
 
     // Compute per-motivator stats
     const stats = MOTIVATORS.map((motivator) => {
@@ -1666,27 +2029,91 @@ export default function App() {
                 <ChevronLeft size={16} />
                 {t.backToStart}
               </button>
-              <button type="button" onClick={() => exportTeamReportPDF(stats, selectedCompany, state.language, maxCount, maxValue)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50 print:hidden">
+              <button type="button" onClick={() => exportTeamReportPDF(stats, selectedCompany, state.language, maxCount, maxValue, {
+                dept: teamFilterDepartment !== "__all__" ? teamFilterDepartment : "",
+                sex: teamFilterSex !== "__all__" ? teamFilterSex : "",
+                seniority: teamFilterSeniority !== "__all__" ? teamFilterSeniority : "",
+                decade: teamFilterDecade !== "__all__" ? `${teamFilterDecade}s` : "",
+              })} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50 print:hidden">
                 <Printer size={16} />
                 PDF
               </button>
-              <button type="button" onClick={() => exportTeamReportExcel(stats, selectedCompany, state.language)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50 print:hidden">
+              <button type="button" onClick={() => exportTeamReportExcel(stats, selectedCompany, state.language, {
+                dept: teamFilterDepartment !== "__all__" ? teamFilterDepartment : "",
+                sex: teamFilterSex !== "__all__" ? teamFilterSex : "",
+                seniority: teamFilterSeniority !== "__all__" ? teamFilterSeniority : "",
+                decade: teamFilterDecade !== "__all__" ? `${teamFilterDecade}s` : "",
+              })} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-50 print:hidden">
                 <FileDown size={16} />
                 Excel
               </button>
             </div>
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">{t.filterByCompany}</label>
-              <select
-                value={selectedCompany}
-                onChange={(e) => setSelectedCompany(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-slate-400 focus:bg-white"
-              >
-                <option value="__all__">{t.allCompanies} ({savedReports.length} {t.participants})</option>
-                {companies.map((c) => (
-                  <option key={c} value={c}>{c} ({savedReports.filter((r) => r.companyName === c).length} {t.participants})</option>
-                ))}
-              </select>
+            <div className="mt-5 flex flex-wrap gap-3 items-center">
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">{t.filterByCompany}</label>
+                <select
+                  value={selectedCompany}
+                  onChange={(e) => { setSelectedCompany(e.target.value); setTeamFilterDepartment("__all__"); }}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-slate-400 focus:bg-white"
+                >
+                  <option value="__all__">{t.allCompanies} ({savedReports.length} {t.participants})</option>
+                  {companies.map((c) => (
+                    <option key={c} value={c}>{c} ({savedReports.filter((r) => r.companyName === c).length} {t.participants})</option>
+                  ))}
+                </select>
+              </div>
+              {uniqueDepartments.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">{t.filterByDepartment}</label>
+                  <select
+                    value={teamFilterDepartment}
+                    onChange={(e) => setTeamFilterDepartment(e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-slate-400 focus:bg-white"
+                  >
+                    <option value="__all__">{t.allDepartments}</option>
+                    {uniqueDepartments.map((d) => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+              )}
+              {uniqueSex.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">{t.filterBySex}</label>
+                  <select
+                    value={teamFilterSex}
+                    onChange={(e) => setTeamFilterSex(e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-slate-400 focus:bg-white"
+                  >
+                    <option value="__all__">{t.allSex}</option>
+                    {uniqueSex.map((s) => <option key={s} value={s}>{getSexLabel(s)}</option>)}
+                  </select>
+                </div>
+              )}
+              {uniqueSeniority.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">{t.filterBySeniority}</label>
+                  <select
+                    value={teamFilterSeniority}
+                    onChange={(e) => setTeamFilterSeniority(e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-slate-400 focus:bg-white"
+                  >
+                    <option value="__all__">{t.allSeniority}</option>
+                    {uniqueSeniority.map((s) => <option key={s} value={s}>{getSeniorityLabel(s)}</option>)}
+                  </select>
+                </div>
+              )}
+              {uniqueDecades.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">{t.filterByBirthDecade}</label>
+                  <select
+                    value={teamFilterDecade}
+                    onChange={(e) => setTeamFilterDecade(e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-slate-400 focus:bg-white"
+                  >
+                    <option value="__all__">{t.allDecades}</option>
+                    {uniqueDecades.map((d) => <option key={d} value={String(d)}>{d}s</option>)}
+                  </select>
+                </div>
+              )}
             </div>
           </section>
 
@@ -2042,6 +2469,30 @@ export default function App() {
                     <span>{t.position}</span>
                     <strong className="text-slate-950">{state.participantPosition}</strong>
                   </div>
+                  {state.yearOfBirth && (
+                    <div className="flex items-center justify-between gap-5 border-b border-slate-100 pb-3">
+                      <span>{t.yearOfBirth}</span>
+                      <strong className="text-slate-950">{state.yearOfBirth}</strong>
+                    </div>
+                  )}
+                  {state.sex && (
+                    <div className="flex items-center justify-between gap-5 border-b border-slate-100 pb-3">
+                      <span>{t.sex}</span>
+                      <strong className="text-slate-950">{SEX_OPTIONS.find((o) => o.value === state.sex)?.[state.language === "fa" ? "labelFa" : "labelEn"] ?? state.sex}</strong>
+                    </div>
+                  )}
+                  {state.seniority && (
+                    <div className="flex items-center justify-between gap-5 border-b border-slate-100 pb-3">
+                      <span>{t.seniority}</span>
+                      <strong className="text-slate-950">{SENIORITY_OPTIONS.find((o) => o.value === state.seniority)?.[state.language === "fa" ? "labelFa" : "labelEn"] ?? state.seniority}</strong>
+                    </div>
+                  )}
+                  {state.department && (
+                    <div className="flex items-center justify-between gap-5 border-b border-slate-100 pb-3">
+                      <span>{t.department}</span>
+                      <strong className="text-slate-950">{state.department}</strong>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between gap-5">
                     <span>{t.date}</span>
                     <strong className="text-slate-950">{new Date().toLocaleDateString(state.language === "fa" ? "fa-IR" : "en-US")}</strong>
@@ -2107,6 +2558,12 @@ export default function App() {
               </div>
             </section>
           </div>
+
+          {limitError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-5 py-4 text-sm font-bold text-red-700 print:hidden">
+              {limitError}
+            </div>
+          )}
 
           <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:flex-row print:hidden">
             {resultSource === "saved_reports" && (

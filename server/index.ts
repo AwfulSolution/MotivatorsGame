@@ -60,6 +60,12 @@ db.exec(`
 
 // Schema migrations — safe to re-run
 try { db.exec("ALTER TABLE reports ADD COLUMN company_id TEXT"); } catch { /* column already exists */ }
+try { db.exec("ALTER TABLE companies ADD COLUMN departments TEXT DEFAULT '[]'"); } catch { /* column already exists */ }
+try { db.exec("ALTER TABLE companies ADD COLUMN test_limit INTEGER"); } catch { /* column already exists */ }
+try { db.exec("ALTER TABLE reports ADD COLUMN year_of_birth INTEGER"); } catch { /* column already exists */ }
+try { db.exec("ALTER TABLE reports ADD COLUMN sex TEXT"); } catch { /* column already exists */ }
+try { db.exec("ALTER TABLE reports ADD COLUMN seniority TEXT"); } catch { /* column already exists */ }
+try { db.exec("ALTER TABLE reports ADD COLUMN department TEXT"); } catch { /* column already exists */ }
 
 // ── Session store ─────────────────────────────────────────────────────────────
 
@@ -134,28 +140,36 @@ app.post("/api/auth/signout", (req, res) => {
 app.get("/api/companies/resolve", (req, res) => {
   const code = ((req.query.code as string) || "").toUpperCase().trim();
   if (!code) { res.status(400).json({ error: "code required" }); return; }
-  const company = db.prepare("SELECT id, name, access_code FROM companies WHERE access_code = ?").get(code) as any;
+  const company = db.prepare("SELECT id, name, access_code, departments FROM companies WHERE access_code = ?").get(code) as any;
   if (!company) { res.status(404).json({ error: "Not found" }); return; }
-  res.json({ id: company.id, name: company.name, code: company.access_code });
+  let departments: { name: string; limit?: number | null }[] = [];
+  try { departments = JSON.parse(company.departments || "[]"); } catch { departments = []; }
+  res.json({ id: company.id, name: company.name, code: company.access_code, departments });
 });
 
 // ── Companies — admin CRUD ────────────────────────────────────────────────────
 
 app.get("/api/admin/companies", requireAdmin, (_req, res) => {
   const rows = db.prepare(`
-    SELECT c.id, c.name, c.access_code, c.created_at, COUNT(r.id) AS report_count
+    SELECT c.id, c.name, c.access_code, c.created_at, c.departments, c.test_limit, COUNT(r.id) AS report_count
     FROM companies c
     LEFT JOIN reports r ON r.company_id = c.id
     GROUP BY c.id
     ORDER BY c.created_at DESC
   `).all() as any[];
-  res.json(rows.map((c) => ({
-    id: c.id,
-    name: c.name,
-    accessCode: c.access_code,
-    createdAt: c.created_at,
-    reportCount: c.report_count,
-  })));
+  res.json(rows.map((c) => {
+    let departments: { name: string; limit?: number | null }[] = [];
+    try { departments = JSON.parse(c.departments || "[]"); } catch { departments = []; }
+    return {
+      id: c.id,
+      name: c.name,
+      accessCode: c.access_code,
+      createdAt: c.created_at,
+      reportCount: c.report_count,
+      departments,
+      testLimit: c.test_limit ?? null,
+    };
+  }));
 });
 
 app.post("/api/admin/companies", requireAdmin, (req, res) => {
@@ -168,9 +182,9 @@ app.post("/api/admin/companies", requireAdmin, (req, res) => {
   const code = generateAccessCode();
   const now = new Date().toISOString();
   db.prepare(
-    "INSERT INTO companies (id, name, access_code, facilitator_password_hash, created_at) VALUES (?, ?, ?, ?, ?)"
-  ).run(id, name.trim(), code, hashPassword(facilitatorPassword), now);
-  res.json({ id, name: name.trim(), accessCode: code, createdAt: now, reportCount: 0 });
+    "INSERT INTO companies (id, name, access_code, facilitator_password_hash, created_at, departments) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run(id, name.trim(), code, hashPassword(facilitatorPassword), now, "[]");
+  res.json({ id, name: name.trim(), accessCode: code, createdAt: now, reportCount: 0, departments: [], testLimit: null });
 });
 
 app.patch("/api/admin/companies/:id/password", requireAdmin, (req, res) => {
@@ -178,6 +192,13 @@ app.patch("/api/admin/companies/:id/password", requireAdmin, (req, res) => {
   if (!newPassword) { res.status(400).json({ error: "newPassword required" }); return; }
   db.prepare("UPDATE companies SET facilitator_password_hash = ? WHERE id = ?").run(hashPassword(newPassword), req.params.id);
   for (const [token, s] of sessions) if (s.role === "facilitator" && s.companyId === req.params.id) sessions.delete(token);
+  res.json({ ok: true });
+});
+
+app.patch("/api/admin/companies/:id/settings", requireAdmin, (req, res) => {
+  const { departments, testLimit } = req.body as { departments: { name: string; limit?: number | null }[]; testLimit: number | null };
+  const departmentsJson = JSON.stringify(Array.isArray(departments) ? departments : []);
+  db.prepare("UPDATE companies SET departments = ?, test_limit = ? WHERE id = ?").run(departmentsJson, testLimit ?? null, req.params.id);
   res.json({ ok: true });
 });
 
@@ -204,9 +225,41 @@ app.get("/api/reports", requireAuth, (req, res) => {
 
 app.post("/api/reports", (req, res) => {
   const r = req.body;
+
+  // Check if this is a new report (not already in DB)
+  const existing = db.prepare("SELECT id, company_id FROM reports WHERE id = ?").get(r.id) as any;
+  const isNew = !existing;
+
+  if (isNew && r.companyId) {
+    // Enforce company test limit
+    const company = db.prepare("SELECT test_limit, departments FROM companies WHERE id = ?").get(r.companyId) as any;
+    if (company) {
+      if (company.test_limit !== null && company.test_limit !== undefined) {
+        const count = (db.prepare("SELECT COUNT(*) as cnt FROM reports WHERE company_id = ?").get(r.companyId) as any).cnt;
+        if (count >= company.test_limit) {
+          res.status(403).json({ error: "company_limit_reached" });
+          return;
+        }
+      }
+      // Enforce department limit
+      if (r.department) {
+        let departments: { name: string; limit?: number | null }[] = [];
+        try { departments = JSON.parse(company.departments || "[]"); } catch { departments = []; }
+        const deptConfig = departments.find((d) => d.name === r.department);
+        if (deptConfig && deptConfig.limit !== null && deptConfig.limit !== undefined) {
+          const deptCount = (db.prepare("SELECT COUNT(*) as cnt FROM reports WHERE company_id = ? AND department = ?").get(r.companyId, r.department) as any).cnt;
+          if (deptCount >= deptConfig.limit) {
+            res.status(403).json({ error: "department_limit_reached" });
+            return;
+          }
+        }
+      }
+    }
+  }
+
   db.prepare(`
-    INSERT INTO reports (id, created_at, updated_at, participant_name, participant_position, company_name, language, active_cards, scores, company_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO reports (id, created_at, updated_at, participant_name, participant_position, company_name, language, active_cards, scores, company_id, year_of_birth, sex, seniority, department)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       updated_at = excluded.updated_at,
       participant_name = excluded.participant_name,
@@ -215,25 +268,29 @@ app.post("/api/reports", (req, res) => {
       language = excluded.language,
       active_cards = excluded.active_cards,
       scores = excluded.scores,
-      company_id = excluded.company_id
+      company_id = excluded.company_id,
+      year_of_birth = excluded.year_of_birth,
+      sex = excluded.sex,
+      seniority = excluded.seniority,
+      department = excluded.department
   `).run(
     r.id, r.createdAt, r.updatedAt, r.participantName, r.participantPosition,
     r.companyName, r.language, JSON.stringify(r.activeCards), JSON.stringify(r.scores),
-    r.companyId ?? null
+    r.companyId ?? null, r.yearOfBirth ?? null, r.sex ?? null, r.seniority ?? null, r.department ?? null
   );
   res.json({ ok: true });
 });
 
 app.patch("/api/reports/:id", requireAuth, (req, res) => {
   const session = (req as any).session as Session;
-  const { participantName, participantPosition, companyName, companyId } = req.body;
+  const { participantName, participantPosition, companyName, companyId, yearOfBirth, sex, seniority, department } = req.body;
   const now = new Date().toISOString();
   if (session.role === "facilitator") {
     db.prepare(`UPDATE reports SET updated_at=?, participant_name=COALESCE(?,participant_name), participant_position=COALESCE(?,participant_position) WHERE id=? AND company_id=?`)
       .run(now, participantName ?? null, participantPosition ?? null, req.params.id, session.companyId!);
   } else {
-    db.prepare(`UPDATE reports SET updated_at=?, participant_name=COALESCE(?,participant_name), participant_position=COALESCE(?,participant_position), company_name=COALESCE(?,company_name), company_id=? WHERE id=?`)
-      .run(now, participantName ?? null, participantPosition ?? null, companyName ?? null, companyId ?? null, req.params.id);
+    db.prepare(`UPDATE reports SET updated_at=?, participant_name=COALESCE(?,participant_name), participant_position=COALESCE(?,participant_position), company_name=COALESCE(?,company_name), company_id=?, year_of_birth=COALESCE(?,year_of_birth), sex=COALESCE(?,sex), seniority=COALESCE(?,seniority), department=COALESCE(?,department) WHERE id=?`)
+      .run(now, participantName ?? null, participantPosition ?? null, companyName ?? null, companyId ?? null, yearOfBirth ?? null, sex ?? null, seniority ?? null, department ?? null, req.params.id);
   }
   res.json({ ok: true });
 });
@@ -271,5 +328,9 @@ function dbToReport(row: any) {
     activeCards: JSON.parse(row.active_cards),
     scores: JSON.parse(row.scores),
     companyId: row.company_id ?? null,
+    yearOfBirth: row.year_of_birth ?? null,
+    sex: row.sex ?? null,
+    seniority: row.seniority ?? null,
+    department: row.department ?? null,
   };
 }
