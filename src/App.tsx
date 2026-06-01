@@ -21,6 +21,7 @@ import { motion, AnimatePresence } from "motion/react";
 import confetti from "canvas-confetti";
 import { MOTIVATORS, Motivator } from "./data/motivators";
 import * as XLSX from "xlsx";
+import type ExcelJS from "exceljs";
 import * as api from "./api";
 
 type GameStage =
@@ -1259,30 +1260,312 @@ export default function App() {
     if (win) { win.document.write(html); win.document.close(); }
   };
 
-  const exportTeamReportExcel = (
+  const exportTeamReportExcel = async (
     rows: { motivator: Motivator; positiveCount: number; negativeCount: number; positiveSum: number; negativeSum: number; timesSelected: number }[],
+    participants: SavedReport[],
     company: string,
     lang: Language,
     activeFilters?: Record<string, string>,
   ) => {
+    const ExcelJS = (await import("exceljs")).default;
+    const isFA = lang === "fa";
     const filterSuffix = activeFilters ? Object.values(activeFilters).filter(Boolean).join(", ") : "";
-    const sheetData = rows.map((r) => {
-      const copy = getMotivatorText(r.motivator, lang);
-      return {
-        [lang === "fa" ? "انگیزاننده" : "Motivator"]: copy.title,
-        [lang === "fa" ? "دسته" : "Category"]: copy.category,
-        [lang === "fa" ? "انتخاب شده" : "Times Selected"]: r.timesSelected,
-        [lang === "fa" ? "تعداد مثبت" : "Positive Count"]: r.positiveCount,
-        [lang === "fa" ? "تعداد منفی" : "Negative Count"]: r.negativeCount,
-        [lang === "fa" ? "مجموع مثبت" : "Positive Sum"]: r.positiveSum,
-        [lang === "fa" ? "مجموع منفی" : "Negative Sum"]: r.negativeSum,
-        [lang === "fa" ? "خالص" : "Net Score"]: r.positiveSum + r.negativeSum,
+    const reportTitle = `Team Motivator Report${company !== "__all__" ? ` — ${company}` : ""}`;
+    const dateStr = new Date().toLocaleDateString(isFA ? "fa-IR" : "en-US");
+
+    const countRowsSorted = [...rows].sort((a, b) => (b.positiveCount - b.negativeCount) - (a.positiveCount - a.negativeCount));
+    const valueRowsSorted = [...rows].sort((a, b) => (b.positiveSum + Math.abs(b.negativeSum)) - (a.positiveSum + Math.abs(a.negativeSum)));
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "HR Motivator Game";
+    wb.created = new Date();
+
+    const addSheet = (
+      sheetName: string,
+      sheetRows: typeof rows,
+      mode: "count" | "value",
+    ) => {
+      const ws = wb.addWorksheet(sheetName);
+      const maxNeg = Math.max(...sheetRows.map(r => mode === "count" ? r.negativeCount : Math.abs(r.negativeSum)), 1);
+      const maxPos = Math.max(...sheetRows.map(r => mode === "count" ? r.positiveCount : r.positiveSum), 1);
+
+      ws.columns = [
+        { key: "rank",     width: 5  },
+        { key: "negval",   width: 10 },
+        { key: "negbar",   width: 18 },
+        { key: "name",     width: 30 },
+        { key: "posbar",   width: 18 },
+        { key: "posval",   width: 10 },
+        { key: "extra",    width: 12 },
+      ];
+
+      // ── Title row ────────────────────────────────────────────────────
+      ws.mergeCells("A1:G1");
+      const titleCell = ws.getCell("A1");
+      titleCell.value = reportTitle;
+      titleCell.font = { bold: true, size: 14, color: { argb: "FF0F172A" } };
+      titleCell.alignment = { horizontal: "left", vertical: "middle" };
+      ws.getRow(1).height = 26;
+
+      // ── Date / filter row ─────────────────────────────────────────────
+      ws.mergeCells("A2:C2");
+      ws.getCell("A2").value = dateStr;
+      ws.getCell("A2").font = { size: 10, color: { argb: "FF64748B" } };
+      if (filterSuffix) {
+        ws.mergeCells("D2:G2");
+        ws.getCell("D2").value = (isFA ? "فیلترها: " : "Filters: ") + filterSuffix;
+        ws.getCell("D2").font = { size: 10, italic: true, color: { argb: "FF64748B" } };
+      }
+
+      ws.addRow([]); // spacer
+
+      // ── Column headers ────────────────────────────────────────────────
+      const negLabel  = mode === "count" ? (isFA ? "← تعداد منفی" : "Neg Count →") : (isFA ? "← مجموع منفی" : "Neg Sum →");
+      const posLabel  = mode === "count" ? (isFA ? "← تعداد مثبت" : "← Pos Count") : (isFA ? "← مجموع مثبت" : "← Pos Sum");
+      const extraLabel = mode === "count" ? (isFA ? "انتخاب شده" : "Selected") : (isFA ? "خالص" : "Net Score");
+      const hdr = ws.addRow([
+        "#",
+        negLabel,
+        "",
+        isFA ? "انگیزاننده" : "Motivator",
+        "",
+        posLabel,
+        extraLabel,
+      ]);
+      hdr.eachCell((cell) => {
+        cell.font = { bold: true, size: 10, color: { argb: "FF475569" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
+        cell.border = { bottom: { style: "thin", color: { argb: "FFE2E8F0" } } };
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+      });
+      hdr.height = 20;
+
+      // ── Data rows ─────────────────────────────────────────────────────
+      sheetRows.forEach((r, i) => {
+        const copy  = getMotivatorText(r.motivator, lang);
+        const negN  = mode === "count" ? r.negativeCount : Math.abs(r.negativeSum);
+        const posN  = mode === "count" ? r.positiveCount : r.positiveSum;
+        const negRaw = mode === "count" ? r.negativeCount : r.negativeSum;
+        const posRaw = mode === "count" ? r.positiveCount : r.positiveSum;
+        const netVal = mode === "count" ? r.positiveCount - r.negativeCount : r.positiveSum + r.negativeSum;
+        const extraVal = mode === "count" ? r.timesSelected : netVal;
+
+        const negBarStr = ("░".repeat(15 - Math.round((negN / maxNeg) * 15)) + "█".repeat(Math.round((negN / maxNeg) * 15)));
+        const posBarStr = ("█".repeat(Math.round((posN / maxPos) * 15)) + "░".repeat(15 - Math.round((posN / maxPos) * 15)));
+
+        const negLabel  = negRaw < 0 ? `${negRaw}` : negRaw > 0 ? `-${negRaw}` : "—";
+        const posLabelV = posRaw > 0 ? `+${posRaw}` : "—";
+
+        const dr = ws.addRow([i + 1, negLabel, negBarStr, copy.title, posBarStr, posLabelV, extraVal]);
+
+        const zebra = i % 2 === 1;
+        const zebraFill: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFAFAFA" } };
+
+        // Rank
+        dr.getCell(1).font = { size: 10, color: { argb: "FF94A3B8" } };
+        dr.getCell(1).alignment = { horizontal: "center" };
+        if (zebra) dr.getCell(1).fill = zebraFill;
+
+        // Neg count/sum
+        dr.getCell(2).font = { bold: true, size: 10, color: { argb: "FFEF4444" } };
+        dr.getCell(2).fill  = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF2F2" } };
+        dr.getCell(2).alignment = { horizontal: "center" };
+
+        // Neg bar
+        dr.getCell(3).font = { name: "Courier New", size: 9, color: { argb: "FFEF4444" } };
+        dr.getCell(3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF2F2" } };
+        dr.getCell(3).alignment = { horizontal: "right" };
+
+        // Motivator name
+        dr.getCell(4).font = { bold: true, size: 11 };
+        dr.getCell(4).alignment = { horizontal: "center" };
+        if (zebra) dr.getCell(4).fill = zebraFill;
+
+        // Pos bar
+        dr.getCell(5).font = { name: "Courier New", size: 9, color: { argb: "FF059669" } };
+        dr.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FDF4" } };
+        dr.getCell(5).alignment = { horizontal: "left" };
+
+        // Pos count/sum
+        dr.getCell(6).font = { bold: true, size: 10, color: { argb: "FF059669" } };
+        dr.getCell(6).fill  = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FDF4" } };
+        dr.getCell(6).alignment = { horizontal: "center" };
+
+        // Extra (selected / net)
+        const isPositive = (mode === "count" ? netVal : extraVal) >= 0;
+        dr.getCell(7).font = { bold: true, size: 10, color: { argb: isPositive ? "FF059669" : "FFEF4444" } };
+        dr.getCell(7).alignment = { horizontal: "center" };
+        if (zebra) dr.getCell(7).fill = zebraFill;
+
+        dr.height = 18;
+        dr.commit();
+      });
+    };
+
+    addSheet(isFA ? "تحلیل تعدادی" : "Count Analysis", countRowsSorted, "count");
+    addSheet(isFA ? "تحلیل ارزشی"  : "Value Analysis",  valueRowsSorted,  "value");
+
+    // ── Participants sheet ─────────────────────────────────────────────────────
+    {
+      // Sort: department → seniority → name
+      const sortedParticipants = [...participants].sort((a, b) => {
+        const deptCmp = (a.department || "").localeCompare(b.department || "");
+        if (deptCmp !== 0) return deptCmp;
+        const senCmp = (a.seniority || "").localeCompare(b.seniority || "");
+        if (senCmp !== 0) return senCmp;
+        return a.participantName.localeCompare(b.participantName);
+      });
+
+      const ws = wb.addWorksheet(isFA ? "شرکت‌کنندگان" : "Participants");
+
+      // Title row
+      ws.mergeCells("A1:L1");
+      const titleCell = ws.getCell("A1");
+      titleCell.value = reportTitle;
+      titleCell.font = { bold: true, size: 14, color: { argb: "FF0F172A" } };
+      titleCell.alignment = { horizontal: "left", vertical: "middle" };
+      ws.getRow(1).height = 26;
+
+      ws.mergeCells("A2:D2");
+      ws.getCell("A2").value = dateStr;
+      ws.getCell("A2").font = { size: 10, color: { argb: "FF64748B" } };
+      if (filterSuffix) {
+        ws.mergeCells("E2:L2");
+        ws.getCell("E2").value = (isFA ? "فیلترها: " : "Filters: ") + filterSuffix;
+        ws.getCell("E2").font = { size: 10, italic: true, color: { argb: "FF64748B" } };
+      }
+      ws.addRow([]);
+
+      // How many scored motivators each participant has (level 2 picks)
+      const MAX_MOTIVATORS = 6;
+
+      // Column headers
+      const baseHeaders = [
+        isFA ? "نام" : "Name",
+        isFA ? "سمت" : "Position",
+        isFA ? "شرکت" : "Company",
+        isFA ? "دپارتمان" : "Department",
+        isFA ? "جنسیت" : "Sex",
+        isFA ? "سطح ارشدیت" : "Seniority",
+        isFA ? "سال تولد" : "Year of Birth",
+        isFA ? "تاریخ" : "Date",
+      ];
+      const motivatorHeaders: string[] = [];
+      for (let i = 1; i <= MAX_MOTIVATORS; i++) {
+        motivatorHeaders.push(`${isFA ? "انگیزاننده" : "Motivator"} ${i}`);
+        motivatorHeaders.push(`${isFA ? "امتیاز" : "Score"} ${i}`);
+      }
+      const hdr = ws.addRow([...baseHeaders, ...motivatorHeaders]);
+      hdr.eachCell((cell) => {
+        cell.font = { bold: true, size: 10, color: { argb: "FF475569" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
+        cell.border = { bottom: { style: "thin", color: { argb: "FFE2E8F0" } } };
+        cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      });
+      hdr.height = 22;
+
+      // Column widths
+      const colWidths = [22, 18, 18, 16, 10, 14, 12, 12,
+        ...Array(MAX_MOTIVATORS * 2).fill(0).map((_, i) => i % 2 === 0 ? 22 : 8)];
+      ws.columns = colWidths.map((width) => ({ width }));
+
+      const getSexLabelLocal = (val: string | null | undefined) => {
+        if (!val) return "";
+        const o = SEX_OPTIONS.find((x) => x.value === val);
+        return o ? (isFA ? o.labelFa : o.labelEn) : val;
       };
-    });
-    const ws = XLSX.utils.json_to_sheet(sheetData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Team Report");
-    XLSX.writeFile(wb, `Team Motivator Report${company !== "__all__" ? ` - ${company}` : ""}${filterSuffix ? ` (${filterSuffix})` : ""}.xlsx`);
+      const getSeniorityLabelLocal = (val: string | null | undefined) => {
+        if (!val) return "";
+        const o = SENIORITY_OPTIONS.find((x) => x.value === val);
+        return o ? (isFA ? o.labelFa : o.labelEn) : val;
+      };
+
+      sortedParticipants.forEach((p, i) => {
+        // Scored motivators sorted by absolute score descending, then by score sign (pos first)
+        const scoredMotivators = Object.entries(p.scores)
+          .filter(([, score]) => score !== 0)
+          .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a) || b - a)
+          .slice(0, MAX_MOTIVATORS);
+
+        const motivatorCells: (string | number)[] = [];
+        for (let mi = 0; mi < MAX_MOTIVATORS; mi++) {
+          if (mi < scoredMotivators.length) {
+            const [motId, score] = scoredMotivators[mi];
+            const mot = MOTIVATORS.find((m) => m.id === motId);
+            const copy = mot ? getMotivatorText(mot, lang) : { title: motId, category: "" };
+            motivatorCells.push(copy.title, score);
+          } else {
+            motivatorCells.push("", "");
+          }
+        }
+
+        const dateVal = p.createdAt ? new Date(p.createdAt).toLocaleDateString(isFA ? "fa-IR" : "en-US") : "";
+        const dr = ws.addRow([
+          p.participantName,
+          p.participantPosition,
+          p.companyName,
+          p.department || "",
+          getSexLabelLocal(p.sex),
+          getSeniorityLabelLocal(p.seniority),
+          p.yearOfBirth || "",
+          dateVal,
+          ...motivatorCells,
+        ]);
+
+        const zebra = i % 2 === 1;
+        const zebraFill: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFAFAFA" } };
+
+        // Name: bold
+        dr.getCell(1).font = { bold: true, size: 11 };
+        // Dept: slate
+        dr.getCell(4).font = { color: { argb: "FF64748B" } };
+        // Sex: slate
+        dr.getCell(5).font = { color: { argb: "FF64748B" } };
+        // Seniority: slate
+        dr.getCell(6).font = { color: { argb: "FF64748B" } };
+        // Year of birth: slate
+        dr.getCell(7).font = { color: { argb: "FF64748B" } };
+        dr.getCell(7).alignment = { horizontal: "center" };
+        // Date
+        dr.getCell(8).font = { size: 10, color: { argb: "FF94A3B8" } };
+        dr.getCell(8).alignment = { horizontal: "center" };
+
+        // Score cells: colored by sign
+        for (let mi = 0; mi < MAX_MOTIVATORS; mi++) {
+          const scoreCell = dr.getCell(8 + 2 + mi * 2); // 9 = first motivator name, 10 = first score
+          const score = scoredMotivators[mi]?.[1];
+          if (score !== undefined) {
+            scoreCell.font = { bold: true, color: { argb: score > 0 ? "FF059669" : score < 0 ? "FFEF4444" : "FF94A3B8" } };
+            scoreCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: score > 0 ? "FFF0FDF4" : score < 0 ? "FFFEF2F2" : "FFFAFAFA" } };
+            scoreCell.alignment = { horizontal: "center" };
+            // Format the value with sign
+            scoreCell.value = score > 0 ? `+${score}` : `${score}`;
+          }
+        }
+
+        if (zebra) {
+          [1, 2, 3, 4, 5, 6, 7, 8].forEach((col) => {
+            const cell = dr.getCell(col);
+            if (!(cell.fill as ExcelJS.FillPattern)?.fgColor) cell.fill = zebraFill;
+          });
+        }
+
+        dr.height = 18;
+        dr.commit();
+      });
+
+      // Freeze header rows
+      ws.views = [{ state: "frozen", xSplit: 0, ySplit: 4, topLeftCell: "A5", activeCell: "A5" }];
+    }
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `Team Motivator Report${company !== "__all__" ? ` - ${company}` : ""}${filterSuffix ? ` (${filterSuffix})` : ""}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const hasDepartments = resolvedCompany ? resolvedCompany.departments.length > 0 : false;
@@ -2061,7 +2344,7 @@ export default function App() {
                 <Printer size={16} />
                 PDF
               </button>
-              <button type="button" onClick={() => exportTeamReportExcel(stats, selectedCompany, state.language, {
+              <button type="button" onClick={() => exportTeamReportExcel(stats, filtered, selectedCompany, state.language, {
                 dept: teamFilterDepartment !== "__all__" ? teamFilterDepartment : "",
                 sex: teamFilterSex !== "__all__" ? teamFilterSex : "",
                 seniority: teamFilterSeniority !== "__all__" ? teamFilterSeniority : "",
