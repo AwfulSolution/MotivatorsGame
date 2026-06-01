@@ -350,7 +350,7 @@ const TEXT = {
     avgScore: "Avg. score",
     totalSelectionsLabel: "total selections",
     sortedByAdoption: "Sorted by: share of all motivator selections",
-    sortedByNetCount: "Sorted by: positive count − negative count",
+    sortedByNetCount: "Sorted by: total times selected",
     sortedByValue: "Sorted by: positive sum + |negative sum|",
   },
   fa: {
@@ -521,7 +521,7 @@ const TEXT = {
     avgScore: "میانگین امتیاز",
     totalSelectionsLabel: "کل انتخاب‌ها",
     sortedByAdoption: "مرتب‌سازی: سهم از کل انتخاب‌های انگیزاننده",
-    sortedByNetCount: "مرتب‌سازی: تعداد مثبت منهای تعداد منفی",
+    sortedByNetCount: "مرتب‌سازی: کل تعداد انتخاب‌شدن",
     sortedByValue: "مرتب‌سازی: مجموع مثبت + قدر مطلق مجموع منفی",
   },
 } as const;
@@ -1250,7 +1250,7 @@ export default function App() {
       })
       .sort((a, b) => b.sel - a.sel);
 
-    const countRowsLocal = [...rows].sort((a, b) => (b.positiveCount - b.negativeCount) - (a.positiveCount - a.negativeCount));
+    const countRowsLocal = [...rows].sort((a, b) => b.timesSelected - a.timesSelected);
     const valueRowsLocal = [...rows].sort((a, b) => (b.positiveSum + Math.abs(b.negativeSum)) - (a.positiveSum + Math.abs(a.negativeSum)));
     const topCategory = catBreakdown[0];
     const topMotivator = [...rows].sort((a, b) => b.timesSelected - a.timesSelected)[0];
@@ -1367,7 +1367,7 @@ export default function App() {
   <!-- Number Analysis -->
   ${section(
     isFA ? "تحلیل تعدادی" : "Number Analysis",
-    isFA ? "مرتب‌سازی: تعداد مثبت منهای تعداد منفی  ·  درصد زیر نام = نرخ کاربرد" : "sorted by positive count − negative count  ·  % below name = adoption rate",
+    isFA ? "مرتب‌سازی: کل تعداد انتخاب‌شدن  ·  درصد زیر نام = نرخ کاربرد" : "sorted by total times selected  ·  % below name = adoption rate",
     `<table style="width:100%;border-collapse:collapse;table-layout:fixed">${countTable}</table>
      ${legend([{ color: "#f87171", label: isFA ? "تعداد منفی" : "Negative count" }, { color: "#34d399", label: isFA ? "تعداد مثبت" : "Positive count" }])}`
   )}
@@ -1411,7 +1411,7 @@ export default function App() {
     const reportTitle = `Team Motivator Report${company !== "__all__" ? ` — ${company}` : ""}`;
     const dateStr = new Date().toLocaleDateString(isFA ? "fa-IR" : "en-US");
 
-    const countRowsSorted = [...rows].sort((a, b) => (b.positiveCount - b.negativeCount) - (a.positiveCount - a.negativeCount));
+    const countRowsSorted = [...rows].sort((a, b) => b.timesSelected - a.timesSelected);
     const valueRowsSorted = [...rows].sort((a, b) => (b.positiveSum + Math.abs(b.negativeSum)) - (a.positiveSum + Math.abs(a.negativeSum)));
 
     const totalSelectionsExcel = rows.reduce((sum, r) => sum + r.timesSelected, 0);
@@ -2582,7 +2582,7 @@ export default function App() {
     });
 
     // Page 1: sorted by net count (positive - negative)
-    const countRows = [...stats].sort((a, b) => (b.positiveCount - b.negativeCount) - (a.positiveCount - a.negativeCount));
+    const countRows = [...stats].sort((a, b) => b.timesSelected - a.timesSelected);
     const maxCount = Math.max(...countRows.map((r) => r.timesSelected), 1);
 
     // Page 2: sorted by total absolute value activity
